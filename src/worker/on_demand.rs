@@ -6,13 +6,6 @@
 use super::{mining_span, MiningStats, MiningWorker};
 use crate::{ChainId, Error, Nonce, Result, Target, Work};
 use async_trait::async_trait;
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::Json,
-    routing::{get, post},
-    Router,
-};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -21,9 +14,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
-use tower::ServiceBuilder;
-use tower_http::cors::CorsLayer;
 use tracing::{debug, info, warn};
+use warp::{Filter, Reply};
 
 /// Request to produce blocks on specific chains
 #[derive(Debug, Deserialize, Serialize)]
@@ -42,7 +34,7 @@ pub struct MakeBlocksResponse {
 }
 
 /// Shared state for the on-demand worker
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct OnDemandState {
     /// Pending block requests
     pending_requests: Arc<Mutex<Vec<(ChainId, u32)>>>, // (chain_id, count)
@@ -63,7 +55,8 @@ impl OnDemandWorker {
     /// Create a new on-demand worker
     pub fn new(interface: String, port: u16) -> Result<Self> {
         // Validate interface
-        interface.parse::<std::net::IpAddr>()
+        interface
+            .parse::<std::net::IpAddr>()
             .map_err(|e| Error::config(format!("Invalid interface address: {}", e)))?;
 
         info!("Creating on-demand worker on {}:{}", interface, port);
@@ -83,43 +76,39 @@ impl OnDemandWorker {
 
     /// Get the socket address for the HTTP server
     fn socket_addr(&self) -> Result<SocketAddr> {
-        let ip = self.interface.parse()
+        let ip = self
+            .interface
+            .parse()
             .map_err(|e| Error::config(format!("Invalid interface: {}", e)))?;
         Ok(SocketAddr::new(ip, self.port))
     }
 
-    /// Create the axum router with all routes
-    fn create_router(&self) -> Router {
-        Router::new()
-            .route("/make-blocks", post(handle_make_blocks_request))
-            .route("/status", get(handle_status_request))
-            .layer(
-                ServiceBuilder::new()
-                    .layer(CorsLayer::permissive())
-                    .into_inner(),
-            )
-            .with_state(self.state.clone())
-    }
-
     /// Start the HTTP server
-    async fn start_server(
-        &self,
-        cancellation: CancellationToken,
-    ) -> Result<()> {
+    async fn start_server(&self, cancellation: CancellationToken) -> Result<()> {
         let addr = self.socket_addr()?;
-        let app = self.create_router();
+        let state = self.state.pending_requests.clone();
+
+        // Create the /make-blocks endpoint
+        let make_blocks = warp::path("make-blocks")
+            .and(warp::post())
+            .and(warp::body::json())
+            .and(warp::any().map(move || state.clone()))
+            .and_then(handle_make_blocks_request);
+
+        // Create the /status endpoint
+        let status = warp::path("status")
+            .and(warp::get())
+            .map(|| warp::reply::with_status("OK", warp::http::StatusCode::OK));
+
+        let routes = make_blocks.or(status);
 
         info!("Starting on-demand HTTP server on {}", addr);
 
-        let listener = tokio::net::TcpListener::bind(addr).await
-            .map_err(|e| Error::network(format!("Failed to bind to {}: {}", addr, e)))?;
+        let server = warp::serve(routes).bind(addr);
 
         tokio::select! {
-            result = axum::serve(listener, app) => {
-                match result {
-                    Ok(()) => info!("On-demand HTTP server stopped"),
-                    Err(e) => warn!("HTTP server error: {}", e),
-                }
+            _ = server => {
+                info!("On-demand HTTP server stopped");
             }
             _ = cancellation.cancelled() => {
                 info!("On-demand HTTP server cancelled");
@@ -137,7 +126,7 @@ impl OnDemandWorker {
         work: Work,
     ) -> Result<Option<Work>> {
         let mut pending = self.state.pending_requests.lock().await;
-        
+
         // Find requests for this chain
         let mut remaining_requests = Vec::new();
         let mut blocks_to_produce = 0u32;
@@ -154,8 +143,11 @@ impl OnDemandWorker {
         drop(pending);
 
         if blocks_to_produce > 0 {
-            info!("Processing request to produce {} blocks for chain {}", blocks_to_produce, chain_id);
-            
+            info!(
+                "Processing request to produce {} blocks for chain {}",
+                blocks_to_produce, chain_id
+            );
+
             // Produce a block (for simplicity, we only produce one at a time)
             let mut solved_work = work;
             let mut rng = rand::thread_rng();
@@ -174,7 +166,10 @@ impl OnDemandWorker {
             };
             drop(stats);
 
-            info!("Produced block for chain {} with nonce {}", chain_id, solution_nonce);
+            info!(
+                "Produced block for chain {} with nonce {}",
+                chain_id, solution_nonce
+            );
             return Ok(Some(solved_work));
         }
 
@@ -184,17 +179,17 @@ impl OnDemandWorker {
 
 /// Handle /make-blocks HTTP requests
 async fn handle_make_blocks_request(
-    State(state): State<OnDemandState>,
-    Json(request): Json<MakeBlocksRequest>,
-) -> std::result::Result<Json<MakeBlocksResponse>, (StatusCode, String)> {
+    request: MakeBlocksRequest,
+    state: Arc<Mutex<Vec<(ChainId, u32)>>>,
+) -> std::result::Result<impl Reply, warp::Rejection> {
     debug!("Received make-blocks request: {:?}", request);
 
-    let mut pending = state.pending_requests.lock().await;
+    let mut pending = state.lock().await;
     let mut total_blocks = 0;
 
-    for (chain_id, count) in &request.chains {
-        if *count > 0 {
-            pending.push((ChainId::new(*chain_id), *count));
+    for (chain_id, count) in request.chains {
+        if count > 0 {
+            pending.push((ChainId::new(chain_id), count));
             total_blocks += count;
         }
     }
@@ -208,12 +203,7 @@ async fn handle_make_blocks_request(
 
     info!("Queued {} block production requests", total_blocks);
 
-    Ok(Json(response))
-}
-
-/// Handle /status HTTP requests
-async fn handle_status_request() -> &'static str {
-    "OK"
+    Ok(warp::reply::json(&response))
 }
 
 #[async_trait]
@@ -232,7 +222,7 @@ impl MiningWorker for OnDemandWorker {
         stats_tx: Option<mpsc::UnboundedSender<MiningStats>>,
     ) -> Result<Work> {
         let _span = mining_span(self.worker_type(), chain_id);
-        
+
         info!(
             "Starting on-demand mining for chain {} on {}:{} (difficulty level: {})",
             chain_id,
@@ -270,7 +260,7 @@ impl MiningWorker for OnDemandWorker {
         let stats_handle = if let Some(stats_tx) = stats_tx {
             Some(tokio::spawn(async move {
                 let mut interval = tokio::time::interval(Duration::from_secs(5));
-                
+
                 while !stats_cancellation.is_cancelled() {
                     tokio::select! {
                         _ = interval.tick() => {
@@ -351,7 +341,11 @@ impl OnDemandWorker {
         Self {
             interface: self.interface.clone(),
             port: self.port,
-            state: self.state.clone(),
+            state: OnDemandState {
+                pending_requests: Arc::clone(&self.state.pending_requests),
+                current_work: Arc::clone(&self.state.current_work),
+                stats: Arc::clone(&self.state.stats),
+            },
         }
     }
 }
@@ -365,7 +359,7 @@ mod tests {
     fn test_on_demand_worker_creation() {
         let worker = OnDemandWorker::new("127.0.0.1".to_string(), 8080);
         assert!(worker.is_ok());
-        
+
         let worker = worker.unwrap();
         assert_eq!(worker.worker_type(), "on-demand");
         assert_eq!(worker.interface, "127.0.0.1");
@@ -391,11 +385,11 @@ mod tests {
         let mut chains = HashMap::new();
         chains.insert(0, 1);
         chains.insert(1, 2);
-        
+
         let request = MakeBlocksRequest { chains };
         let json = serde_json::to_string(&request).unwrap();
         let deserialized: MakeBlocksRequest = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(deserialized.chains.len(), 2);
         assert_eq!(deserialized.chains[&0], 1);
         assert_eq!(deserialized.chains[&1], 2);
@@ -414,7 +408,10 @@ mod tests {
             pending.push((chain_id, 1));
         }
 
-        let result = worker.process_requests(target, chain_id, work).await.unwrap();
+        let result = worker
+            .process_requests(target, chain_id, work)
+            .await
+            .unwrap();
         assert!(result.is_some());
 
         // Check statistics were updated
@@ -435,20 +432,16 @@ mod tests {
             pending.push((ChainId::new(1), 1)); // Different chain
         }
 
-        let result = worker.process_requests(target, chain_id, work).await.unwrap();
+        let result = worker
+            .process_requests(target, chain_id, work)
+            .await
+            .unwrap();
         assert!(result.is_none());
 
         // Request should still be pending
         let pending = worker.state.pending_requests.lock().await;
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].0, ChainId::new(1));
-    }
-
-    #[tokio::test]
-    async fn test_router_creation() {
-        let worker = OnDemandWorker::new("127.0.0.1".to_string(), 8080).unwrap();
-        let _router = worker.create_router();
-        // If this compiles and runs without panic, the router is valid
     }
 
     // Note: Full HTTP server testing would require more complex integration tests

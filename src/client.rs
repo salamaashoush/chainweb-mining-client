@@ -81,11 +81,7 @@ pub struct ChainwebClient {
 
 impl ChainwebClient {
     /// Create a new chainweb client
-    pub fn new(
-        base_url: impl AsRef<str>,
-        timeout: Duration,
-        insecure: bool,
-    ) -> Result<Self> {
+    pub fn new(base_url: impl AsRef<str>, timeout: Duration, insecure: bool) -> Result<Self> {
         let base_url = Url::parse(base_url.as_ref())
             .map_err(|e| Error::config(format!("Invalid base URL: {}", e)))?;
 
@@ -112,16 +108,23 @@ impl ChainwebClient {
     /// Get node information
     #[instrument(skip(self))]
     pub async fn get_node_info(&mut self) -> Result<NodeInfo> {
-        let url = self.base_url.join("info")
+        let url = self
+            .base_url
+            .join("info")
             .map_err(|e| Error::network(format!("Failed to build info URL: {}", e)))?;
 
         debug!("Fetching node info from: {}", url);
 
         let response = self.get_with_retry(&url).await?;
-        let info: NodeInfo = response.json().await
+        let info: NodeInfo = response
+            .json()
+            .await
             .map_err(|e| Error::chainweb_node(format!("Failed to parse node info: {}", e)))?;
 
-        info!("Connected to chainweb node version: {}", info.node_version.0);
+        info!(
+            "Connected to chainweb node version: {}",
+            info.node_version.0
+        );
         self.version = Some(info.node_version.clone());
 
         Ok(info)
@@ -130,10 +133,13 @@ impl ChainwebClient {
     /// Get mining job from the node
     #[instrument(skip(self, miner))]
     pub async fn get_mining_job(&self, miner: &Miner) -> Result<MiningJob> {
-        let version = self.version.as_ref()
+        let version = self
+            .version
+            .as_ref()
             .ok_or_else(|| Error::invalid_state("Node version not fetched yet"))?;
 
-        let url = self.base_url
+        let url = self
+            .base_url
             .join(&format!("chainweb/0.0/{}/mining/work", version.0))
             .map_err(|e| Error::network(format!("Failed to build work URL: {}", e)))?;
 
@@ -145,7 +151,8 @@ impl ChainwebClient {
             "predicate": "keys-all"
         });
 
-        let response = self.client
+        let response = self
+            .client
             .post(url)
             .json(&miner_data)
             .send()
@@ -159,7 +166,9 @@ impl ChainwebClient {
             )));
         }
 
-        let bytes = response.bytes().await
+        let bytes = response
+            .bytes()
+            .await
             .map_err(|e| Error::chainweb_node(format!("Failed to read work response: {}", e)))?;
 
         // Parse the binary response according to chainweb mining API format
@@ -169,10 +178,13 @@ impl ChainwebClient {
     /// Submit solved work to the node
     #[instrument(skip(self, work))]
     pub async fn submit_work(&self, work: &Work) -> Result<()> {
-        let version = self.version.as_ref()
+        let version = self
+            .version
+            .as_ref()
             .ok_or_else(|| Error::invalid_state("Node version not fetched yet"))?;
 
-        let url = self.base_url
+        let url = self
+            .base_url
             .join(&format!("chainweb/0.0/{}/mining/solved", version.0))
             .map_err(|e| Error::network(format!("Failed to build solved URL: {}", e)))?;
 
@@ -194,24 +206,25 @@ impl ChainwebClient {
 
     /// Create update stream for a specific chain
     #[instrument(skip(self))]
-    pub async fn update_stream(&self, chain_id: ChainId) -> Result<Pin<Box<dyn Stream<Item = UpdateEvent> + Send>>> {
-        let version = self.version.as_ref()
+    pub async fn update_stream(
+        &self,
+        chain_id: ChainId,
+    ) -> Result<Pin<Box<dyn Stream<Item = UpdateEvent> + Send>>> {
+        let version = self
+            .version
+            .as_ref()
             .ok_or_else(|| Error::invalid_state("Node version not fetched yet"))?;
 
-        let url = self.base_url
+        let url = self
+            .base_url
             .join(&format!("chainweb/0.0/{}/mining/updates", version.0))
             .map_err(|e| Error::network(format!("Failed to build updates URL: {}", e)))?;
 
         debug!("Creating update stream for chain {} at: {}", chain_id, url);
 
         let chain_bytes = chain_id.to_bytes();
-        
-        let stream = UpdateStream::new(
-            self.client.clone(),
-            url,
-            chain_bytes.to_vec(),
-            chain_id,
-        );
+
+        let stream = UpdateStream::new(self.client.clone(), url, chain_bytes.to_vec(), chain_id);
 
         Ok(Box::pin(stream))
     }
@@ -265,25 +278,35 @@ impl ChainwebClient {
                     if response.status().is_success() || !response.status().is_server_error() {
                         return Ok(response);
                     }
-                    
+
                     if attempts >= self.backoff_config.max_retries {
-                        return Err(Error::http(reqwest::Error::from(response.error_for_status().unwrap_err())));
+                        return Err(Error::http(reqwest::Error::from(
+                            response.error_for_status().unwrap_err(),
+                        )));
                     }
                 }
                 Err(e) => {
-                    if !e.is_timeout() && !e.is_connect() || attempts >= self.backoff_config.max_retries {
+                    if !e.is_timeout() && !e.is_connect()
+                        || attempts >= self.backoff_config.max_retries
+                    {
                         return Err(Error::from(e));
                     }
                 }
             }
 
-            warn!("Request failed, retrying in {:?} (attempt {}/{})", delay, attempts + 1, self.backoff_config.max_retries);
+            warn!(
+                "Request failed, retrying in {:?} (attempt {}/{})",
+                delay,
+                attempts + 1,
+                self.backoff_config.max_retries
+            );
             sleep(delay).await;
-            
+
             delay = Duration::from_millis(
-                ((delay.as_millis() as f64) * self.backoff_config.multiplier) as u64
-            ).min(self.backoff_config.max_delay);
-            
+                ((delay.as_millis() as f64) * self.backoff_config.multiplier) as u64,
+            )
+            .min(self.backoff_config.max_delay);
+
             attempts += 1;
         }
     }
@@ -294,30 +317,46 @@ impl ChainwebClient {
         let mut attempts = 0;
 
         loop {
-            match self.client.post(url.clone()).body(body.to_vec()).send().await {
+            match self
+                .client
+                .post(url.clone())
+                .body(body.to_vec())
+                .send()
+                .await
+            {
                 Ok(response) => {
                     if response.status().is_success() || !response.status().is_server_error() {
                         return Ok(response);
                     }
-                    
+
                     if attempts >= self.backoff_config.max_retries {
-                        return Err(Error::http(reqwest::Error::from(response.error_for_status().unwrap_err())));
+                        return Err(Error::http(reqwest::Error::from(
+                            response.error_for_status().unwrap_err(),
+                        )));
                     }
                 }
                 Err(e) => {
-                    if !e.is_timeout() && !e.is_connect() || attempts >= self.backoff_config.max_retries {
+                    if !e.is_timeout() && !e.is_connect()
+                        || attempts >= self.backoff_config.max_retries
+                    {
                         return Err(Error::from(e));
                     }
                 }
             }
 
-            warn!("POST request failed, retrying in {:?} (attempt {}/{})", delay, attempts + 1, self.backoff_config.max_retries);
+            warn!(
+                "POST request failed, retrying in {:?} (attempt {}/{})",
+                delay,
+                attempts + 1,
+                self.backoff_config.max_retries
+            );
             sleep(delay).await;
-            
+
             delay = Duration::from_millis(
-                ((delay.as_millis() as f64) * self.backoff_config.multiplier) as u64
-            ).min(self.backoff_config.max_delay);
-            
+                ((delay.as_millis() as f64) * self.backoff_config.multiplier) as u64,
+            )
+            .min(self.backoff_config.max_delay);
+
             attempts += 1;
         }
     }
@@ -350,7 +389,8 @@ impl UpdateStream {
     async fn connect(&mut self) -> Result<()> {
         debug!("Connecting to update stream for chain {}", self.chain_id);
 
-        let response = self.client
+        let response = self
+            .client
             .post(self.url.clone())
             .body(self.chain_bytes.clone())
             .send()
@@ -366,7 +406,7 @@ impl UpdateStream {
 
         let stream = response.bytes_stream();
         self.response = Some(Box::pin(stream));
-        
+
         info!("Connected to update stream for chain {}", self.chain_id);
         Ok(())
     }
@@ -435,21 +475,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_client_creation() {
-        let client = ChainwebClient::new(
-            "http://localhost:1848",
-            Duration::from_secs(30),
-            false,
-        );
+        let client = ChainwebClient::new("http://localhost:1848", Duration::from_secs(30), false);
         assert!(client.is_ok());
     }
 
     #[test]
     fn test_mining_job_parsing() {
-        let client = ChainwebClient::new(
-            "http://localhost:1848",
-            Duration::from_secs(30),
-            false,
-        ).unwrap();
+        let client =
+            ChainwebClient::new("http://localhost:1848", Duration::from_secs(30), false).unwrap();
 
         // Create test data: chain_id (4) + target (32) + work (286)
         let mut test_data = Vec::new();
@@ -470,11 +503,9 @@ mod tests {
             max_retries: 5,
         };
 
-        let client = ChainwebClient::new(
-            "http://localhost:1848",
-            Duration::from_secs(30),
-            false,
-        ).unwrap().with_backoff_config(config);
+        let client = ChainwebClient::new("http://localhost:1848", Duration::from_secs(30), false)
+            .unwrap()
+            .with_backoff_config(config);
 
         assert_eq!(client.backoff_config.max_retries, 5);
         assert_eq!(client.backoff_config.multiplier, 1.5);

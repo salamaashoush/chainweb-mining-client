@@ -25,7 +25,7 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"] }
 hyper = { version = "1.6", features = ["full"] }
 axum = { version = "0.8", features = ["json"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["cors", "trace"] }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -81,6 +81,11 @@ tempfile = "3.20"
 assert_matches = "1.5"
 proptest = "1.7"
 tokio-test = "0.4"
+criterion = "0.6"
+
+[[bench]]
+name = "mining_benchmarks"
+harness = false
 
 [profile.release]
 lto = true

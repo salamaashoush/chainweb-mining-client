@@ -1,25 +1,14 @@
-//! Cryptographic utilities for chainweb mining
+//! Cryptographic utilities for mining
 //!
-//! Provides key generation and Blake2s hashing functionality for mining operations.
+//! Provides optimized Blake2s hashing and Ed25519 key generation.
 
-use crate::{Error, Result, Target};
+use crate::Target;
 use blake2::{Blake2s256, Digest};
-use ed25519_dalek::{SigningKey, VerifyingKey};
-use rand::rngs::OsRng;
+use ed25519_dalek::{Keypair, PublicKey, SecretKey};
+use rand::{CryptoRng, RngCore};
+use std::convert::TryInto;
 
-/// Generate a new Ed25519 key pair
-pub fn generate_keypair() -> (String, String) {
-    let mut csprng = OsRng;
-    let signing_key = SigningKey::generate(&mut csprng);
-    let verifying_key = signing_key.verifying_key();
-
-    let private_key = hex::encode(signing_key.as_bytes());
-    let public_key = hex::encode(verifying_key.as_bytes());
-
-    (public_key, private_key)
-}
-
-/// Blake2s256 hasher for mining operations
+/// Optimized Blake2s hasher for mining operations
 pub struct Blake2sHasher {
     hasher: Blake2s256,
 }
@@ -32,32 +21,46 @@ impl Blake2sHasher {
         }
     }
 
-    /// Reset the hasher
-    pub fn reset(&mut self) {
-        self.hasher = Blake2s256::new();
-    }
-
-    /// Update hasher with data
-    pub fn update(&mut self, data: &[u8]) {
+    /// Hash data and return the result
+    pub fn hash(&mut self, data: &[u8]) -> [u8; 32] {
         self.hasher.update(data);
+        let result = self.hasher.finalize_reset();
+        result.into()
     }
 
-    /// Finalize and get the hash
-    pub fn finalize(self) -> [u8; 32] {
-        self.hasher.finalize().into()
+    /// Hash work header and check against target
+    /// Returns true if the hash meets the target difficulty
+    pub fn hash_and_check(&mut self, data: &[u8], target: &Target) -> (bool, [u8; 32]) {
+        let hash = self.hash(data);
+        let meets_target = target.check_hash(&hash);
+        (meets_target, hash)
     }
 
-    /// Convenience method to hash data directly
-    pub fn hash(data: &[u8]) -> [u8; 32] {
-        let mut hasher = Self::new();
-        hasher.update(data);
-        hasher.finalize()
-    }
+    /// Batch hash multiple nonces
+    /// Returns the first nonce that meets the target, if any
+    pub fn batch_hash_check(
+        &mut self,
+        base_data: &[u8],
+        nonce_start: u64,
+        count: u32,
+        target: &Target,
+    ) -> Option<(u64, [u8; 32])> {
+        let mut work_data = base_data.to_vec();
+        let nonce_offset = work_data.len() - 8; // Nonce is last 8 bytes
 
-    /// Hash work and check if it meets target
-    pub fn hash_meets_target(work: &[u8], target: &Target) -> bool {
-        let hash = Self::hash(work);
-        target.meets_target(&hash)
+        for i in 0..count {
+            let nonce = nonce_start + i as u64;
+            
+            // Write nonce to work data
+            work_data[nonce_offset..].copy_from_slice(&nonce.to_le_bytes());
+            
+            let (meets_target, hash) = self.hash_and_check(&work_data, target);
+            if meets_target {
+                return Some((nonce, hash));
+            }
+        }
+
+        None
     }
 }
 
@@ -67,195 +70,115 @@ impl Default for Blake2sHasher {
     }
 }
 
-/// Fast target checking for mining loops
-/// 
-/// This function performs an optimized comparison of a hash against a target
-/// without full hash computation when possible.
-pub fn fast_check_target(target_words: &[u64; 4], hash: &[u8; 32]) -> bool {
-    // Convert hash bytes to words for comparison (little-endian)
-    let hash_words = unsafe {
-        std::mem::transmute::<[u8; 32], [u64; 4]>(*hash)
-    };
+/// Generate a new Ed25519 keypair for mining account
+pub fn generate_keypair<R: CryptoRng + RngCore>(rng: &mut R) -> (SecretKey, PublicKey) {
+    let keypair = Keypair::generate(rng);
+    (keypair.secret, keypair.public)
+}
 
-    // Compare words from most significant to least significant
-    for i in (0..4).rev() {
-        if hash_words[i] < target_words[i] {
-            return true;
-        } else if hash_words[i] > target_words[i] {
-            return false;
+/// Convert a public key to its hex representation
+pub fn public_key_to_hex(public_key: &PublicKey) -> String {
+    hex::encode(public_key.as_bytes())
+}
+
+/// Fast target checking optimized for mining
+impl Target {
+    /// Check if a hash meets this target (lower is better)
+    pub fn check_hash(&self, hash: &[u8; 32]) -> bool {
+        // Compare hash bytes in big-endian order
+        for i in 0..32 {
+            match hash[i].cmp(&self.as_bytes()[i]) {
+                std::cmp::Ordering::Less => return true,
+                std::cmp::Ordering::Greater => return false,
+                std::cmp::Ordering::Equal => continue,
+            }
         }
-    }
-    true
-}
-
-/// Optimized mining hash computation
-/// 
-/// This struct provides an optimized path for mining operations that need
-/// to compute many hashes with only small changes (like nonce updates).
-pub struct MiningHasher {
-    base_state: Blake2s256,
-    nonce_offset: usize,
-}
-
-impl MiningHasher {
-    /// Create a new mining hasher
-    /// 
-    /// `work_prefix` should be the work data up to but not including the nonce
-    /// `nonce_offset` is the byte offset where the nonce starts in the full work
-    pub fn new(work_prefix: &[u8], nonce_offset: usize) -> Self {
-        let mut hasher = Blake2s256::new();
-        hasher.update(work_prefix);
-        
-        Self {
-            base_state: hasher,
-            nonce_offset,
-        }
-    }
-
-    /// Compute hash for work with the given nonce
-    pub fn hash_with_nonce(&self, nonce_bytes: &[u8], remaining_work: &[u8]) -> [u8; 32] {
-        let mut hasher = self.base_state.clone();
-        hasher.update(nonce_bytes);
-        hasher.update(remaining_work);
-        hasher.finalize().into()
-    }
-
-    /// Fast check if hash with nonce meets target
-    pub fn hash_meets_target_with_nonce(
-        &self,
-        nonce_bytes: &[u8],
-        remaining_work: &[u8],
-        target_words: &[u64; 4],
-    ) -> bool {
-        let hash = self.hash_with_nonce(nonce_bytes, remaining_work);
-        fast_check_target(target_words, &hash)
-    }
-}
-
-/// Utility to get current time in microseconds since epoch
-pub fn current_time_micros() -> i64 {
-    chrono::Utc::now().timestamp_micros()
-}
-
-/// Utility to inject timestamp into work bytes
-pub fn inject_timestamp(work: &mut [u8], timestamp_micros: i64, offset: usize) {
-    if work.len() >= offset + 8 {
-        work[offset..offset + 8].copy_from_slice(&timestamp_micros.to_le_bytes());
-    }
-}
-
-/// Utility to inject nonce into work bytes
-pub fn inject_nonce(work: &mut [u8], nonce: u64, offset: usize) {
-    if work.len() >= offset + 8 {
-        work[offset..offset + 8].copy_from_slice(&nonce.to_le_bytes());
+        true // Hash equals target
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Target;
+    use rand::thread_rng;
+
+    #[test]
+    fn test_blake2s_hasher() {
+        let mut hasher = Blake2sHasher::new();
+        let data = b"test data";
+        let hash = hasher.hash(data);
+        
+        // Hash should be deterministic
+        let mut hasher2 = Blake2sHasher::new();
+        let hash2 = hasher2.hash(data);
+        assert_eq!(hash, hash2);
+        
+        // Different data should produce different hashes
+        let hash3 = hasher.hash(b"different data");
+        assert_ne!(hash, hash3);
+    }
+
+    #[test]
+    fn test_hash_and_check() {
+        let mut hasher = Blake2sHasher::new();
+        let data = b"test data";
+        let target = Target::max(); // Easiest target
+        
+        let (meets_target, _hash) = hasher.hash_and_check(data, &target);
+        assert!(meets_target); // Max target should always be met
+    }
+
+    #[test]
+    fn test_batch_hash_check() {
+        let mut hasher = Blake2sHasher::new();
+        let mut base_data = vec![0u8; 286]; // Chainweb work header size
+        
+        // Add 8 bytes for nonce
+        base_data.extend_from_slice(&0u64.to_le_bytes());
+        
+        let target = Target::max();
+        let result = hasher.batch_hash_check(&base_data, 0, 10, &target);
+        
+        // With max target, we should find a solution quickly
+        assert!(result.is_some());
+        
+        let (nonce, _hash) = result.unwrap();
+        assert!(nonce < 10);
+    }
 
     #[test]
     fn test_keypair_generation() {
-        let (public_key, private_key) = generate_keypair();
+        let mut rng = thread_rng();
+        let (_secret1, public1) = generate_keypair(&mut rng);
+        let (_secret2, public2) = generate_keypair(&mut rng);
         
-        // Keys should be 64 hex characters (32 bytes)
-        assert_eq!(public_key.len(), 64);
-        assert_eq!(private_key.len(), 64);
+        // Different keypairs should have different public keys
+        assert_ne!(public1.as_bytes(), public2.as_bytes());
+    }
+
+    #[test]
+    fn test_public_key_to_hex() {
+        let mut rng = thread_rng();
+        let (_secret, public) = generate_keypair(&mut rng);
+        let hex_str = public_key_to_hex(&public);
+        
+        // Should be 64 hex characters (32 bytes * 2)
+        assert_eq!(hex_str.len(), 64);
         
         // Should be valid hex
-        assert!(hex::decode(&public_key).is_ok());
-        assert!(hex::decode(&private_key).is_ok());
+        assert!(hex::decode(&hex_str).is_ok());
     }
 
     #[test]
-    fn test_blake2s_hashing() {
-        let data = b"test data";
-        let hash1 = Blake2sHasher::hash(data);
-        let hash2 = Blake2sHasher::hash(data);
+    fn test_target_check_hash() {
+        let target = Target::max();
+        let zero_hash = [0u8; 32];
+        let max_hash = [0xFFu8; 32];
         
-        // Same input should produce same hash
-        assert_eq!(hash1, hash2);
+        // Zero hash should always meet any target
+        assert!(target.check_hash(&zero_hash));
         
-        // Different input should produce different hash
-        let hash3 = Blake2sHasher::hash(b"different data");
-        assert_ne!(hash1, hash3);
-    }
-
-    #[test]
-    fn test_target_checking() {
-        // Create an easy target (high value)
-        let easy_target = Target::new([u64::MAX, u64::MAX, u64::MAX, u64::MAX >> 1]);
-        
-        // Most hashes should meet this target
-        let test_data = b"test mining work data with nonce";
-        let hash = Blake2sHasher::hash(test_data);
-        
-        // This specific test might not always pass due to randomness of hash,
-        // but demonstrates the API
-        let _meets_target = easy_target.meets_target(&hash);
-    }
-
-    #[test]
-    fn test_fast_target_check() {
-        let target_words = [u64::MAX, u64::MAX, u64::MAX, u64::MAX >> 1];
-        let easy_hash = [0u8; 32]; // All zeros should meet most targets
-        
-        assert!(fast_check_target(&target_words, &easy_hash));
-        
-        let hard_hash = [0xFFu8; 32]; // All 0xFF should fail most targets
-        assert!(!fast_check_target(&target_words, &hard_hash));
-    }
-
-    #[test]
-    fn test_mining_hasher() {
-        let work_prefix = b"chainweb block header prefix";
-        let nonce_offset = work_prefix.len();
-        let remaining_work = b"suffix after nonce";
-        
-        let hasher = MiningHasher::new(work_prefix, nonce_offset);
-        
-        let nonce1 = 12345u64.to_le_bytes();
-        let nonce2 = 67890u64.to_le_bytes();
-        
-        let hash1 = hasher.hash_with_nonce(&nonce1, remaining_work);
-        let hash2 = hasher.hash_with_nonce(&nonce2, remaining_work);
-        
-        // Different nonces should produce different hashes
-        assert_ne!(hash1, hash2);
-    }
-
-    #[test]
-    fn test_time_utilities() {
-        let time1 = current_time_micros();
-        std::thread::sleep(std::time::Duration::from_millis(1));
-        let time2 = current_time_micros();
-        
-        assert!(time2 > time1);
-    }
-
-    #[test]
-    fn test_injection_utilities() {
-        let mut work = vec![0u8; 100];
-        let timestamp = 1234567890123456i64;
-        let nonce = 0xdeadbeefcafebabeu64;
-        
-        inject_timestamp(&mut work, timestamp, 10);
-        inject_nonce(&mut work, nonce, 20);
-        
-        // Verify timestamp was injected correctly
-        let injected_timestamp = i64::from_le_bytes([
-            work[10], work[11], work[12], work[13],
-            work[14], work[15], work[16], work[17],
-        ]);
-        assert_eq!(injected_timestamp, timestamp);
-        
-        // Verify nonce was injected correctly
-        let injected_nonce = u64::from_le_bytes([
-            work[20], work[21], work[22], work[23],
-            work[24], work[25], work[26], work[27],
-        ]);
-        assert_eq!(injected_nonce, nonce);
+        // Max hash should only meet max target
+        assert!(target.check_hash(&max_hash));
     }
 }
