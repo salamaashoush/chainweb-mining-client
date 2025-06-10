@@ -1,6 +1,42 @@
-dist-newstyle
-hls.log
-.ghc.environment*
-.ghci_history
-.ghci
+# Rust
+/target/
+**/*.rs.bk
+*.pdb
+Cargo.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+
+# Config files with secrets
+config.yaml
+config.json
+*.key
+*.pem
+
+# Test outputs
+/coverage/
+/target/tarpaulin/
+
+# Build artifacts
+/dist/
+/build/
+
+# Environment
+.env
+.env.local
