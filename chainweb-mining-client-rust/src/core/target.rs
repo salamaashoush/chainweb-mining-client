@@ -1,0 +1,179 @@
+//! Target type for mining difficulty
+
+use crate::error::{Error, Result};
+use serde::{Deserialize, Serialize};
+use std::fmt;
+
+/// Represents a 256-bit mining target (difficulty threshold)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Target([u8; 32]);
+
+impl Target {
+    /// Create a new Target from bytes
+    pub fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+
+    /// Create a Target from a hex string
+    pub fn from_hex(hex: &str) -> Result<Self> {
+        let bytes = hex::decode(hex)
+            .map_err(|e| Error::invalid_target(format!("Invalid hex: {}", e)))?;
+        
+        if bytes.len() != 32 {
+            return Err(Error::invalid_target(format!(
+                "Expected 32 bytes, got {}",
+                bytes.len()
+            )));
+        }
+
+        let mut array = [0u8; 32];
+        array.copy_from_slice(&bytes);
+        Ok(Self(array))
+    }
+
+    /// Get the target as bytes
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+
+    /// Convert to hex string
+    pub fn to_hex(&self) -> String {
+        hex::encode(&self.0)
+    }
+
+    /// Check if a hash meets this target (is below it)
+    pub fn meets_target(&self, hash: &[u8; 32]) -> bool {
+        // Compare as big-endian integers
+        for i in 0..32 {
+            match hash[i].cmp(&self.0[i]) {
+                std::cmp::Ordering::Less => return true,
+                std::cmp::Ordering::Greater => return false,
+                std::cmp::Ordering::Equal => continue,
+            }
+        }
+        // Equal hashes technically don't meet the target
+        false
+    }
+
+    /// Convert difficulty to target
+    /// Difficulty = max_target / target
+    pub fn from_difficulty(difficulty: f64) -> Result<Self> {
+        if difficulty <= 0.0 {
+            return Err(Error::invalid_target("Difficulty must be positive"));
+        }
+
+        // Max target is 2^256 - 1
+        // For practical purposes, we'll use a simplified conversion
+        let target_value = (u64::MAX as f64) / difficulty;
+        let target_u64 = target_value as u64;
+
+        let mut bytes = [0xFFu8; 32]; // Start with max target
+        bytes[24..32].copy_from_slice(&target_u64.to_be_bytes());
+
+        Ok(Self(bytes))
+    }
+
+    /// Get difficulty from target
+    pub fn to_difficulty(&self) -> f64 {
+        // Simplified difficulty calculation
+        let mut value = 0u64;
+        for &byte in &self.0[24..32] {
+            value = (value << 8) | (byte as u64);
+        }
+        
+        if value == 0 {
+            return f64::MAX;
+        }
+        
+        (u64::MAX as f64) / (value as f64)
+    }
+}
+
+impl fmt::Display for Target {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.to_hex())
+    }
+}
+
+impl Serialize for Target {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_hex())
+    }
+}
+
+impl<'de> Deserialize<'de> for Target {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let hex = String::deserialize(deserializer)?;
+        Self::from_hex(&hex).map_err(serde::de::Error::custom)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_target_from_bytes() {
+        let bytes = [0x01; 32];
+        let target = Target::from_bytes(bytes);
+        assert_eq!(target.as_bytes(), &bytes);
+    }
+
+    #[test]
+    fn test_target_hex_conversion() {
+        let hex = "0000000000000000000000000000000000000000000000000000000000000001";
+        let target = Target::from_hex(hex).unwrap();
+        assert_eq!(target.to_hex(), hex);
+    }
+
+    #[test]
+    fn test_target_meets_target() {
+        let target_bytes = [0x00, 0x00, 0x00, 0x0F, 0xFF, 0xFF, 0xFF, 0xFF,
+                           0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                           0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                           0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
+        let target = Target::from_bytes(target_bytes);
+
+        // Hash that meets target
+        let good_hash = [0x00, 0x00, 0x00, 0x0E, 0xFF, 0xFF, 0xFF, 0xFF,
+                        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
+        assert!(target.meets_target(&good_hash));
+
+        // Hash that doesn't meet target
+        let bad_hash = [0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        assert!(!target.meets_target(&bad_hash));
+
+        // Equal hash doesn't meet target
+        assert!(!target.meets_target(&target_bytes));
+    }
+
+    #[test]
+    fn test_target_serde() {
+        let hex = "00000000ffff0000000000000000000000000000000000000000000000000000";
+        let target = Target::from_hex(hex).unwrap();
+        
+        let json = serde_json::to_string(&target).unwrap();
+        assert_eq!(json, format!("\"{}\"", hex));
+        
+        let deserialized: Target = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, target);
+    }
+
+    #[test]
+    fn test_invalid_target_hex() {
+        assert!(Target::from_hex("invalid").is_err());
+        assert!(Target::from_hex("00").is_err()); // Too short
+        assert!(Target::from_hex(&"00".repeat(33)).is_err()); // Too long
+    }
+}

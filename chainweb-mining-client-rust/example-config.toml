@@ -1,0 +1,56 @@
+# Example configuration file for Chainweb Mining Client
+
+[node]
+# Chainweb node URL (without protocol)
+url = "api.chainweb.com"
+
+# Use TLS/HTTPS (automatically detected from URL if starts with https://)
+use_tls = true
+
+# Request timeout in seconds
+timeout_secs = 30
+
+# Chain ID to mine on (0-19 for mainnet)
+chain_id = 0
+
+[mining]
+# Your miner account (k: account or w: account)
+account = "k:your-kadena-account-here"
+
+# Your public key (64 character hex string)
+public_key = "your-64-character-public-key-here"
+
+# How often to check for updates (seconds)
+update_interval_secs = 5
+
+[worker]
+# Worker type: "cpu", "external", or "stratum"
+type = "cpu"
+
+# CPU worker specific settings
+threads = 0  # 0 = use all available CPU cores
+batch_size = 100000  # Nonces to check per batch
+
+# External worker example (comment out CPU section and uncomment this)
+# type = "external"
+# command = "/path/to/your/gpu-miner"
+# args = ["--gpu", "0", "--intensity", "24"]
+# env = [["CUDA_DEVICE", "0"]]
+# timeout_secs = 60
+
+# Stratum server example (for ASIC miners)
+# type = "stratum"
+# port = 3333
+# host = "0.0.0.0"
+# max_connections = 100
+# initial_difficulty = 1.0
+
+[logging]
+# Log level: "trace", "debug", "info", "warn", "error"
+level = "info"
+
+# Log format: "plain" or "json"
+format = "plain"
+
+# Optional: Log to file
+# file = "mining.log"

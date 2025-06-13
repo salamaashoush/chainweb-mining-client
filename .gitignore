@@ -4,3 +4,4 @@ hls.log
 .ghci_history
 .ghci
 .DS_Store
+target/
