@@ -8,8 +8,8 @@ use async_trait::async_trait;
 use futures::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use parking_lot::Mutex;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Instant;
 use tokio::sync::mpsc;
 use tokio::task;
@@ -145,7 +145,7 @@ impl Worker for ExternalWorker {
 
             loop {
                 line.clear();
-                
+
                 // Read with timeout
                 let read_result = tokio::time::timeout(
                     std::time::Duration::from_secs(timeout_secs),
@@ -255,10 +255,7 @@ mod tests {
         );
 
         // Hex
-        assert_eq!(
-            ExternalWorker::parse_nonce("0xFF"),
-            Some(Nonce::new(255))
-        );
+        assert_eq!(ExternalWorker::parse_nonce("0xFF"), Some(Nonce::new(255)));
         assert_eq!(
             ExternalWorker::parse_nonce("DEADBEEF"),
             Some(Nonce::new(0xDEADBEEF))
@@ -313,11 +310,11 @@ mod tests {
         };
 
         let worker = ExternalWorker::new(config);
-        
+
         // Create work and target
         let work = Work::from_bytes([0u8; 286]);
         let target = Target::from_bytes([0xFF; 32]); // Easy target
-        
+
         let (tx, mut rx) = mpsc::channel(1);
 
         // Start mining
@@ -327,10 +324,9 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
         // Should receive result (echo outputs "12345")
-        if let Ok(Some(result)) = tokio::time::timeout(
-            std::time::Duration::from_secs(2),
-            rx.recv()
-        ).await {
+        if let Ok(Some(result)) =
+            tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv()).await
+        {
             assert_eq!(result.nonce.value(), 12345);
         }
 

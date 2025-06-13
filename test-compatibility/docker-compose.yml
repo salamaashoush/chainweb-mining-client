@@ -1,0 +1,79 @@
+services:
+  # Development chainweb node with mining enabled
+  chainweb-dev:
+    image: salamaashoush/chainweb-node:latest
+    container_name: chainweb-dev-node
+    restart: unless-stopped
+    environment:
+      - DISABLE_POW_VALIDATION=1
+    command:
+      - +RTS
+      - -T
+      - -H400M
+      - -A64M
+      - -RTS
+      - --log-level=info
+      - --enable-mining-coordination
+      - --mining-public-key=f89ef46927f506c70b6a58fd322450a936311dc6ac91f4ec3d8ef949608dbf1f
+      - --header-stream
+      - --allowReadsInLocal
+      - --database-directory=/chainweb/db
+      - --p2p-hostname=0.0.0.0
+      - --p2p-port=1789
+      - --service-port=1848
+      - --bootstrap-reachability=0
+      - --mempool-p2p-max-session-count=0
+      - --disable-mempool-p2p
+      - --prune-chain-database=none
+      - --fast-forward-block-height-limit=400
+    ports:
+      - "1848:1848"  # Service port
+      - "1789:1789"  # P2P port
+    volumes:
+      - chainweb-data:/chainweb/db
+    stop_grace_period: 20s
+    stop_signal: SIGINT
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+
+  # Production-like chainweb node (without PoW validation disabled)
+  chainweb-prod:
+    image: salamaashoush/chainweb-node:latest
+    container_name: chainweb-prod-node
+    restart: unless-stopped
+    command:
+      - +RTS
+      - -T
+      - -H400M
+      - -A64M
+      - -RTS
+      - --log-level=info
+      - --enable-mining-coordination
+      - --mining-public-key=f89ef46927f506c70b6a58fd322450a936311dc6ac91f4ec3d8ef949608dbf1f
+      - --header-stream
+      - --allowReadsInLocal
+      - --database-directory=/chainweb/db
+      - --p2p-hostname=0.0.0.0
+      - --p2p-port=1790
+      - --service-port=1849
+      - --bootstrap-reachability=0
+      - --mempool-p2p-max-session-count=0
+      - --disable-mempool-p2p
+      - --prune-chain-database=none
+    ports:
+      - "1849:1849"  # Service port
+      - "1790:1790"  # P2P port
+    volumes:
+      - chainweb-prod-data:/chainweb/db
+    stop_grace_period: 20s
+    stop_signal: SIGINT
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+
+volumes:
+  chainweb-data:
+  chainweb-prod-data:

@@ -5,8 +5,7 @@ use tracing_subscriber::EnvFilter;
 
 /// Initialize logging based on configuration
 pub fn init_logging(level: &str, format: &str) {
-    let env_filter = EnvFilter::try_new(level)
-        .unwrap_or_else(|_| EnvFilter::new("info"));
+    let env_filter = EnvFilter::try_new(level).unwrap_or_else(|_| EnvFilter::new("info"));
 
     match format {
         "json" => {
@@ -54,10 +53,10 @@ pub fn difficulty_to_target(difficulty: f64) -> [u8; 32] {
     // In practice, you'd need the exact formula used by Chainweb
     let max_target = u64::MAX as f64;
     let target_value = (max_target / difficulty) as u64;
-    
+
     let mut bytes = [0xFFu8; 32];
     bytes[24..32].copy_from_slice(&target_value.to_be_bytes());
-    
+
     bytes
 }
 
@@ -86,7 +85,7 @@ mod tests {
     fn test_difficulty_to_target() {
         let target = difficulty_to_target(1.0);
         assert_eq!(target[0..24], [0xFF; 24]);
-        
+
         let harder_target = difficulty_to_target(2.0);
         // Should be roughly half the value
         let value1 = u64::from_be_bytes(target[24..32].try_into().unwrap());

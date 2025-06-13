@@ -17,16 +17,16 @@ pub use work::Work;
 pub mod constants {
     /// Size of a work header in bytes
     pub const WORK_SIZE: usize = 286;
-    
+
     /// Size of the nonce in bytes
     pub const NONCE_SIZE: usize = 8;
-    
+
     /// Offset of the nonce in the work header
     pub const NONCE_OFFSET: usize = WORK_SIZE - NONCE_SIZE;
-    
+
     /// Size of a hash in bytes (Blake2s-256)
     pub const HASH_SIZE: usize = 32;
-    
+
     /// Size of the target in bytes
     pub const TARGET_SIZE: usize = 32;
 }

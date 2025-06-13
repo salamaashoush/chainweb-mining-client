@@ -8,48 +8,172 @@ use chainweb_mining_client::{
     error::Result,
     protocol::chainweb::{ChainwebClient, ChainwebClientConfig},
     utils,
-    workers::{cpu::{CpuWorker, CpuWorkerConfig}, external::{ExternalWorker, ExternalWorkerConfig}, Worker},
+    workers::{
+        Worker,
+        cpu::{CpuWorker, CpuWorkerConfig},
+        external::{ExternalWorker, ExternalWorkerConfig},
+    },
 };
 use clap::Parser;
 use futures::StreamExt;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
+const INFO_MESSAGE: &str = r#"
+Chainweb Mining Client
+
+A mining client for Kadena's chainweb node mining API. It supports:
+
+- mining with ASICs through a stratum server,
+- simulated mining for testing,
+- multi threaded CPU mining,
+- external mining workers (e.g. a GPU),
+- timed miners for non-PoW usecases.
+
+Competitive mining on the Kadena Mainnet requires special mining hardware
+(ASIC), which connects to a Stratum Server from where it obtains work.
+
+All other mining modes (GPU, CPU, and simulation) are intended only for testing.
+"#;
+
+const LONG_INFO_MESSAGE: &str = r#"
+Chainweb Mining Client
+
+Detailed information about the mining client...
+
+For more information, visit: https://github.com/kadena-io/chainweb-mining-client
+"#;
+
+const LICENSE: &str = r#"
+BSD 3-Clause License
+
+Copyright (c) 2019-2024, Kadena LLC
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+"#;
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // Parse command-line arguments
     let args = Args::parse();
-    
+
+    // Handle special info flags
+    if args.info {
+        println!("{}", INFO_MESSAGE);
+        return Ok(());
+    }
+
+    if args.long_info {
+        println!("{}", LONG_INFO_MESSAGE);
+        return Ok(());
+    }
+
+    if args.show_version {
+        println!("chainweb-mining-client {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
+    if args.license {
+        println!("{}", LICENSE);
+        return Ok(());
+    }
+
+    // Handle key generation
+    if args.generate_key {
+        generate_key_pair();
+        return Ok(());
+    }
+
+    // Handle print config
+    let print_config_flag = args.print_config;
+    let print_config_format = args.print_config_as.clone();
+
     // Load configuration
     let config = Config::from_args(args)?;
-    
+
+    if print_config_flag || print_config_format.is_some() {
+        let format = print_config_format.as_deref().unwrap_or("full");
+        print_config(&config, format)?;
+        return Ok(());
+    }
+
     // Initialize logging
     utils::init_logging(&config.logging.level, &config.logging.format);
-    
-    info!("Starting Chainweb Mining Client v{}", env!("CARGO_PKG_VERSION"));
-    info!("Mining on chain {} for account {}", config.node.chain_id, config.mining.account);
-    
+
+    info!(
+        "Starting Chainweb Mining Client v{}",
+        env!("CARGO_PKG_VERSION")
+    );
+    let chain_str = config
+        .node
+        .chain_id
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| "all chains".to_string());
+    info!(
+        "Mining on {} for account {}",
+        chain_str, config.mining.account
+    );
+
     // Create Chainweb client
     let chainweb_config = ChainwebClientConfig {
         node_url: config.node.url.clone(),
-        chain_id: ChainId::new(config.node.chain_id),
+        chain_id: config
+            .node
+            .chain_id
+            .map(ChainId::new)
+            .unwrap_or(ChainId::new(0)),
         account: config.mining.account.clone(),
         public_key: config.mining.public_key.clone(),
         timeout: Duration::from_secs(config.node.timeout_secs),
         use_tls: config.node.use_tls,
+        insecure: config.node.insecure,
     };
-    
-    let client = ChainwebClient::new(chainweb_config)?;
-    
+
+    let mut client = ChainwebClient::new(chainweb_config)?;
+
     // Get node info
     let node_info = client.get_node_info().await?;
-    info!("Connected to node: {} (API v{})", node_info.node_version, node_info.node_api_version);
+    info!(
+        "Connected to node: {} (API v{})",
+        node_info.node_version, node_info.node_api_version
+    );
     
+    // Set the node version for future API calls
+    client.set_node_version(node_info.node_version.clone());
+
     // Create worker based on configuration
     let worker: Arc<dyn Worker> = match &config.worker {
-        WorkerConfig::Cpu { threads, batch_size } => {
+        WorkerConfig::Cpu {
+            threads,
+            batch_size,
+        } => {
             let cpu_config = CpuWorkerConfig {
                 threads: *threads,
                 batch_size: *batch_size,
@@ -57,43 +181,94 @@ async fn main() -> Result<()> {
             };
             Arc::new(CpuWorker::new(cpu_config))
         }
-        WorkerConfig::External { command, args, env, timeout_secs } => {
+        WorkerConfig::External {
+            command,
+            args,
+            env,
+            timeout_secs,
+        } => {
             let external_config = ExternalWorkerConfig {
-                command: command.clone(),
+                command: PathBuf::from(command),
                 args: args.clone(),
                 env: env.clone(),
                 timeout_secs: *timeout_secs,
             };
             Arc::new(ExternalWorker::new(external_config))
         }
-        WorkerConfig::Stratum { .. } => {
-            // TODO: Implement Stratum server
-            return Err(chainweb_mining_client::error::Error::config("Stratum server not yet implemented"));
+        WorkerConfig::Stratum {
+            port,
+            host,
+            max_connections,
+            difficulty,
+            rate_ms,
+        } => {
+            let stratum_config = chainweb_mining_client::workers::stratum::StratumServerConfig {
+                port: *port,
+                host: host.clone(),
+                max_connections: *max_connections,
+                difficulty: difficulty.clone(),
+                rate_ms: *rate_ms,
+            };
+            Arc::new(chainweb_mining_client::workers::stratum::StratumServer::new(stratum_config))
+        }
+        WorkerConfig::Simulation { hash_rate } => {
+            let simulation_config =
+                chainweb_mining_client::workers::simulation::SimulationWorkerConfig {
+                    hash_rate: *hash_rate,
+                };
+            Arc::new(
+                chainweb_mining_client::workers::simulation::SimulationWorker::new(
+                    simulation_config,
+                ),
+            )
+        }
+        WorkerConfig::ConstantDelay { block_time_secs } => {
+            let constant_delay_config =
+                chainweb_mining_client::workers::constant_delay::ConstantDelayWorkerConfig {
+                    block_time_secs: *block_time_secs,
+                };
+            Arc::new(
+                chainweb_mining_client::workers::constant_delay::ConstantDelayWorker::new(
+                    constant_delay_config,
+                ),
+            )
+        }
+        WorkerConfig::OnDemand { port, host } => {
+            let on_demand_config =
+                chainweb_mining_client::workers::on_demand::OnDemandWorkerConfig {
+                    port: *port,
+                    host: host.clone(),
+                };
+            Arc::new(
+                chainweb_mining_client::workers::on_demand::OnDemandWorker::new(on_demand_config),
+            )
         }
     };
-    
+
     info!("Using {} worker", worker.worker_type());
-    
+
     // Create channel for mining results
     let (result_tx, mut result_rx) = mpsc::channel(10);
-    
+
     // Subscribe to work updates
     let mut update_stream = client.subscribe_updates().await?;
-    
+
     // Get initial work
     let (mut current_work, mut current_target) = client.get_work().await?;
     info!("Received initial work");
-    
+
     // Start mining
-    worker.mine(current_work.clone(), current_target, result_tx.clone()).await?;
-    
+    worker
+        .mine(current_work.clone(), current_target, result_tx.clone())
+        .await?;
+
     // Main mining loop
     loop {
         tokio::select! {
             // Handle mining results
             Some(result) = result_rx.recv() => {
                 info!("Found solution! Nonce: {}", result.nonce);
-                
+
                 // Submit solution
                 match client.submit_solution(&result.work).await {
                     Ok(()) => {
@@ -103,7 +278,7 @@ async fn main() -> Result<()> {
                         error!("Failed to submit solution: {}", e);
                     }
                 }
-                
+
                 // Get new work and continue mining
                 match client.get_work().await {
                     Ok((work, target)) => {
@@ -116,22 +291,22 @@ async fn main() -> Result<()> {
                     }
                 }
             }
-            
+
             // Handle work updates
             Some(update_result) = update_stream.next() => {
                 match update_result {
                     Ok(_) => {
                         info!("Received work update");
-                        
+
                         // Stop current mining
                         worker.stop().await?;
-                        
+
                         // Get new work
                         match client.get_work().await {
                             Ok((work, target)) => {
                                 current_work = work;
                                 current_target = target;
-                                
+
                                 // Start mining with new work
                                 worker.mine(current_work.clone(), current_target, result_tx.clone()).await?;
                             }
@@ -155,7 +330,7 @@ async fn main() -> Result<()> {
                     }
                 }
             }
-            
+
             // Handle shutdown signal
             _ = tokio::signal::ctrl_c() => {
                 info!("Shutting down...");
@@ -163,14 +338,75 @@ async fn main() -> Result<()> {
                 break;
             }
         }
-        
+
         // Print hashrate periodically
         let hashrate = worker.hashrate().await;
         if hashrate > 0 {
             info!("Current hashrate: {}", utils::format_hashrate(hashrate));
         }
     }
-    
+
     info!("Mining client stopped");
+    Ok(())
+}
+
+/// Generate a new Ed25519 key pair for mining
+fn generate_key_pair() {
+    use ed25519_dalek::{SigningKey, VerifyingKey};
+
+    let mut secret_bytes = [0u8; 32];
+    getrandom::fill(&mut secret_bytes).expect("Failed to generate random bytes");
+    let signing_key = SigningKey::from_bytes(&secret_bytes);
+    let verifying_key: VerifyingKey = (&signing_key).into();
+
+    let private_key = hex::encode(signing_key.to_bytes());
+    let public_key = hex::encode(verifying_key.to_bytes());
+
+    println!("public:  {}", public_key);
+    println!("private: {}", private_key);
+}
+
+/// Print configuration in the specified format
+fn print_config(config: &Config, format: &str) -> Result<()> {
+    match format {
+        "full" => {
+            // Print as YAML for compatibility with Haskell version
+            let yaml = serde_yaml::to_string(config).map_err(|e| {
+                chainweb_mining_client::error::Error::config(format!(
+                    "Failed to serialize config: {}",
+                    e
+                ))
+            })?;
+            println!("{}", yaml);
+        }
+        "minimal" => {
+            // Print only non-default values
+            // For now, just print the full config
+            let yaml = serde_yaml::to_string(config).map_err(|e| {
+                chainweb_mining_client::error::Error::config(format!(
+                    "Failed to serialize config: {}",
+                    e
+                ))
+            })?;
+            println!("{}", yaml);
+        }
+        "diff" => {
+            // Print only values that differ from defaults
+            // For now, just print the full config
+            let yaml = serde_yaml::to_string(config).map_err(|e| {
+                chainweb_mining_client::error::Error::config(format!(
+                    "Failed to serialize config: {}",
+                    e
+                ))
+            })?;
+            println!("{}", yaml);
+        }
+        _ => {
+            return Err(chainweb_mining_client::error::Error::config(format!(
+                "Invalid print-config-as format: {}. Must be one of: full, minimal, diff",
+                format
+            )));
+        }
+    }
     Ok(())
 }

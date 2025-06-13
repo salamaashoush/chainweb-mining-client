@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 mod work_tests {
-    use crate::core::{constants::*, work::WorkBuilder, Nonce, Work};
+    use crate::core::{Nonce, Work, constants::*, work::WorkBuilder};
 
     #[test]
     fn test_work_builder_chain_id() {
@@ -23,14 +23,13 @@ mod work_tests {
     fn test_work_timestamp_update() {
         let mut work = Work::from_bytes([0u8; WORK_SIZE]);
         let timestamp = 1234567890u64;
-        
+
         work.update_timestamp(timestamp);
-        
+
         // Verify timestamp is updated (at offset 8)
         let bytes = work.as_bytes();
         let stored_timestamp = u64::from_le_bytes([
-            bytes[8], bytes[9], bytes[10], bytes[11],
-            bytes[12], bytes[13], bytes[14], bytes[15],
+            bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15],
         ]);
         assert_eq!(stored_timestamp, timestamp);
     }
@@ -39,7 +38,7 @@ mod work_tests {
     fn test_work_display() {
         let mut work = Work::from_bytes([0u8; WORK_SIZE]);
         work.set_nonce(Nonce::new(12345));
-        
+
         let display = format!("{}", work);
         assert!(display.contains("12345"));
     }
@@ -48,7 +47,7 @@ mod work_tests {
     fn test_work_debug() {
         let work = Work::from_bytes([0x42u8; WORK_SIZE]);
         let debug = format!("{:?}", work);
-        
+
         assert!(debug.contains("Work"));
         assert!(debug.contains("hex"));
         assert!(debug.contains("nonce"));
@@ -111,7 +110,7 @@ mod nonce_tests {
         let mut nonce = Nonce::new(u64::MAX - 1);
         nonce.increment();
         assert_eq!(nonce.value(), u64::MAX);
-        
+
         nonce.increment();
         assert_eq!(nonce.value(), 0); // Wraps around
     }
@@ -121,7 +120,7 @@ mod nonce_tests {
         let nonce = Nonce::new(0xDEADBEEF);
         let json = serde_json::to_string(&nonce).unwrap();
         assert_eq!(json, "3735928559");
-        
+
         let deserialized: Nonce = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized, nonce);
     }
@@ -145,7 +144,7 @@ mod chain_id_tests {
         let id1 = ChainId::new(5);
         let id2 = ChainId::new(5);
         let id3 = ChainId::new(6);
-        
+
         assert_eq!(id1, id2);
         assert_ne!(id1, id3);
     }
@@ -153,12 +152,12 @@ mod chain_id_tests {
     #[test]
     fn test_chain_id_hash() {
         use std::collections::HashSet;
-        
+
         let mut set = HashSet::new();
         set.insert(ChainId::new(1));
         set.insert(ChainId::new(2));
         set.insert(ChainId::new(1)); // Duplicate
-        
+
         assert_eq!(set.len(), 2);
     }
 }

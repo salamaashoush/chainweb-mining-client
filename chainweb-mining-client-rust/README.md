@@ -22,11 +22,41 @@ A high-performance, async Rust implementation of the Chainweb mining client with
 - Rust 1.70 or higher
 - Cargo
 
+### Automatic Dependency Installation
+
+The project includes a cross-platform script that automatically installs all required dependencies:
+
+```bash
+# Automatic setup for Arch Linux, Ubuntu, Fedora, and openSUSE
+just dev-setup
+
+# Or run the script directly
+./scripts/install-deps.sh
+```
+
+**Supported Distributions:**
+- Arch Linux / Manjaro
+- Ubuntu / Debian / Linux Mint / Pop!_OS / elementary OS
+- Fedora / RHEL / CentOS / Rocky Linux / AlmaLinux
+- openSUSE Leap / Tumbleweed / SLES
+
+**Installed Tools:**
+- System packages: expect, telnet, netcat, docker, git, build tools
+- Rust tools: cargo-machete, typos-cli, cargo-audit, cargo-llvm-cov
+- Command runner: just
+- Container platform: Docker with proper permissions
+
 ### Building from source
 
 ```bash
 git clone https://github.com/kadena-io/chainweb-mining-client.git
 cd chainweb-mining-client/chainweb-mining-client-rust
+
+# Quick start with all quality checks
+just check
+cargo build --release
+
+# Or using traditional cargo commands
 cargo build --release
 ```
 
@@ -129,17 +159,133 @@ OPTIONS:
 
 ## Development
 
-### Running tests
+### Quick Start
+
+```bash
+# Install system dependencies and development tools
+just dev-setup
+
+# Verify all tools are installed correctly
+just dev-verify
+
+# Run all quality checks (recommended before committing)
+just check
+
+# Run CI pipeline locally
+just ci
+
+# Quick development checks
+just dev-check
+```
+
+### Available Commands
+
+```bash
+# Quality Checks
+just fmt          # Format code with rustfmt
+just lint         # Run clippy linter with strict settings
+just typos        # Check for spelling errors
+just unused-deps  # Check for unused dependencies
+just audit        # Run security audit
+
+# Testing and Building
+just test         # Run all tests
+just build        # Build debug version
+just build-release # Build optimized release
+just bench        # Run benchmarks
+
+# Docker Support
+just docker-build latest scratch     # Build scratch-based image
+just docker-build latest distroless  # Build distroless image
+just docker-build-all v1.0.0        # Build both variants
+just docker-test latest             # Test image functionality
+
+# Complete Workflows
+just release v1.0.0  # Full release: check + test + build + docker
+
+# Stratum Protocol Testing
+just test-stratum         # Full integration test with expect script
+just test-stratum-unit    # Unit tests for protocol compatibility
+```
+
+### Code Quality Standards
+
+This project maintains zero compiler warnings and follows strict quality standards:
+
+- **100% Warning-Free**: All compiler warnings have been eliminated
+- **Formatted**: Code is automatically formatted with `rustfmt`
+- **Linted**: Uses `clippy` with `-D warnings` (treat warnings as errors)
+- **Spell-Checked**: Uses `typos-cli` to catch spelling errors
+- **Dependency-Clean**: No unused dependencies via `cargo-machete`
+- **Security-Audited**: Regular vulnerability scans with `cargo audit`
+
+### Continuous Integration
+
+The project uses GitHub Actions for comprehensive CI/CD:
+
+- **Multi-Platform Testing**: Linux, Windows, macOS
+- **Multi-Architecture Builds**: x86_64, aarch64
+- **Docker Images**: Both scratch and distroless variants
+- **Security Scanning**: Automated dependency vulnerability checks
+- **Code Coverage**: Comprehensive test coverage reporting
+- **Automated Releases**: Binary artifacts and Docker images on git tags
+
+### Node Requirements
+
+For mining to work, the Chainweb node must have mining endpoints enabled:
+- Production nodes: Mining is enabled by default
+- Development nodes: Must be started with `DISABLE_POW_VALIDATION=1` environment variable
+- The node must expose the following endpoints:
+  - `/chainweb/0.0/{version}/mining/work`
+  - `/chainweb/0.0/{version}/mining/updates`
+  - `/chainweb/0.0/{version}/mining/solved`
+
+### Stratum Protocol Testing
+
+The project includes comprehensive testing for Stratum protocol compatibility:
+
+```bash
+# Protocol unit tests (9 test cases validating Haskell compatibility)
+cargo test --test stratum_compatibility
+
+# Full integration test with expect script (requires expect and telnet)
+./scripts/test-stratum.sh
+
+# Available via justfile (run from chainweb-mining-client-rust directory)
+cd chainweb-mining-client-rust
+just test-stratum-unit      # Unit tests only
+just test-stratum           # Full integration test (requires node on port 8080)
+just test-stratum 1848      # Test with node on custom port
+just test-stratum-no-node   # Test without requiring a running node
+```
+
+**Test Coverage:**
+- **Message Format Compatibility**: Validates JSON-RPC message structures
+- **Protocol Flow**: Tests mining.authorize and mining.subscribe sequences  
+- **Haskell Compatibility**: Uses the original `stratum.expect` script
+- **Error Handling**: Validates error response formats
+- **Performance**: Multi-connection stress testing
+
+### Traditional Cargo Commands
 
 ```bash
 # Run all tests
 cargo test
 
-# Run with coverage
-cargo tarpaulin --out Html
+# Run with coverage (requires cargo-llvm-cov)
+cargo llvm-cov --html
 
 # Run benchmarks
 cargo bench --features bench
+
+# Check without building
+cargo check
+
+# Format code
+cargo fmt
+
+# Run clippy
+cargo clippy -- -D warnings
 ```
 
 ### Documentation

@@ -59,7 +59,7 @@ impl Work {
     /// Compute the Blake2s-256 hash of the work
     pub fn hash(&self) -> [u8; 32] {
         let mut hasher = Blake2s256::new();
-        hasher.update(&self.bytes);
+        hasher.update(self.bytes);
         hasher.finalize().into()
     }
 
@@ -81,13 +81,13 @@ impl Work {
 
     /// Create a hex representation of the work
     pub fn to_hex(&self) -> String {
-        hex::encode(&self.bytes)
+        hex::encode(self.bytes)
     }
 
     /// Create Work from a hex string
     pub fn from_hex(hex: &str) -> Result<Self> {
-        let bytes = hex::decode(hex)
-            .map_err(|e| Error::invalid_work(format!("Invalid hex: {}", e)))?;
+        let bytes =
+            hex::decode(hex).map_err(|e| Error::invalid_work(format!("Invalid hex: {}", e)))?;
         Self::from_slice(&bytes)
     }
 }
@@ -127,10 +127,12 @@ impl<'de> Deserialize<'de> for Work {
 }
 
 /// Builder for constructing Work headers
+#[allow(dead_code)]
 pub struct WorkBuilder {
     bytes: Vec<u8>,
 }
 
+#[allow(dead_code)]
 impl WorkBuilder {
     /// Create a new WorkBuilder
     pub fn new() -> Self {
@@ -198,11 +200,11 @@ mod tests {
     #[test]
     fn test_work_nonce() {
         let mut work = Work::from_bytes([0u8; WORK_SIZE]);
-        
+
         // Set nonce
         let nonce = Nonce::new(12345);
         work.set_nonce(nonce);
-        
+
         // Get nonce
         assert_eq!(work.nonce(), nonce);
     }
@@ -212,7 +214,7 @@ mod tests {
         let work = Work::from_bytes([0x42u8; WORK_SIZE]);
         let hash = work.hash();
         assert_eq!(hash.len(), 32);
-        
+
         // Hash should be deterministic
         let hash2 = work.hash();
         assert_eq!(hash, hash2);
@@ -223,10 +225,10 @@ mod tests {
         let mut bytes = [0u8; WORK_SIZE];
         bytes[0] = 0xFF;
         bytes[WORK_SIZE - 1] = 0xAA;
-        
+
         let work = Work::from_bytes(bytes);
         let hex = work.to_hex();
-        
+
         let work2 = Work::from_hex(&hex).unwrap();
         assert_eq!(work, work2);
     }
@@ -246,10 +248,10 @@ mod tests {
     #[test]
     fn test_work_serde() {
         let work = Work::from_bytes([0x11u8; WORK_SIZE]);
-        
+
         let json = serde_json::to_string(&work).unwrap();
         let deserialized: Work = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(work, deserialized);
     }
 }

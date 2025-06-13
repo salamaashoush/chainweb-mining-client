@@ -6,8 +6,8 @@ use crate::workers::{MiningResult, Worker};
 use async_trait::async_trait;
 use parking_lot::Mutex;
 use rayon::prelude::*;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tokio::task;
@@ -123,13 +123,9 @@ impl Worker for CpuWorker {
             info!("Starting CPU mining");
 
             while is_mining.load(Ordering::Relaxed) {
-                if let Some((nonce, hash)) = Self::mine_batch(
-                    &work,
-                    &target,
-                    current_nonce,
-                    batch_size,
-                    &is_mining,
-                ) {
+                if let Some((nonce, hash)) =
+                    Self::mine_batch(&work, &target, current_nonce, batch_size, &is_mining)
+                {
                     info!("Found solution! Nonce: {}", nonce);
 
                     let mut solved_work = work.clone();
@@ -214,7 +210,7 @@ mod tests {
 
         // Create easy work that will find solution quickly
         let work = Work::from_bytes([0u8; WORK_SIZE]);
-        
+
         // Very easy target (high value means easy difficulty)
         let mut target_bytes = [0xFFu8; 32];
         target_bytes[0] = 0x7F; // Make it slightly harder than max
@@ -245,7 +241,7 @@ mod tests {
     #[tokio::test]
     async fn test_cpu_worker_stop() {
         let worker = CpuWorker::new(CpuWorkerConfig::default());
-        
+
         // Very hard target (won't find solution)
         let target = Target::from_bytes([0x00; 32]);
         let work = Work::from_bytes([0u8; WORK_SIZE]);
@@ -264,12 +260,12 @@ mod tests {
     #[test]
     fn test_mine_batch() {
         let work = Work::from_bytes([0u8; WORK_SIZE]);
-        
+
         // Easy target
         let mut target_bytes = [0xFFu8; 32];
         target_bytes[0] = 0x00;
         let target = Target::from_bytes(target_bytes);
-        
+
         let is_mining = AtomicBool::new(true);
 
         // Should find solution in first batch

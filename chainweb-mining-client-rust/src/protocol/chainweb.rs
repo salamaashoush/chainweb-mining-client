@@ -2,7 +2,6 @@
 
 use crate::core::{ChainId, Target, Work};
 use crate::error::{Error, Result};
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use eventsource_stream::Eventsource;
 use futures::StreamExt;
 use reqwest::Client;
@@ -25,6 +24,8 @@ pub struct ChainwebClientConfig {
     pub timeout: Duration,
     /// Whether to use TLS
     pub use_tls: bool,
+    /// Allow insecure TLS connections (self-signed certificates)
+    pub insecure: bool,
 }
 
 /// Chainweb client for interacting with nodes
@@ -32,6 +33,7 @@ pub struct ChainwebClientConfig {
 pub struct ChainwebClient {
     config: ChainwebClientConfig,
     client: Client,
+    node_version: Option<String>,
 }
 
 /// Work request payload
@@ -43,43 +45,51 @@ struct WorkRequest {
     public_keys: Vec<String>,
 }
 
-/// Work response from node
-#[derive(Debug, Deserialize)]
-struct WorkResponse {
-    #[serde(rename = "work-bytes")]
-    work_bytes: String,
-    target: String,
-}
-
-/// Solution submission payload
-#[derive(Debug, Serialize)]
-struct SolutionRequest {
-    #[serde(rename = "work-bytes")]
-    work_bytes: String,
-}
-
 /// Node info response
 #[derive(Debug, Deserialize)]
 pub struct NodeInfo {
+    /// Node version string
     #[serde(rename = "nodeVersion")]
     pub node_version: String,
+    /// Node API version string
     #[serde(rename = "nodeApiVersion")]
     pub node_api_version: String,
-    #[serde(rename = "nodeChains")]
-    pub node_chains: Vec<u16>,
-    #[serde(rename = "nodeNumberOfChains")]
+    /// List of chain IDs supported by the node (as strings in the response)
+    #[serde(rename = "nodeChains", default)]
+    pub node_chains: Vec<String>,
+    /// Total number of chains
+    #[serde(rename = "nodeNumberOfChains", default)]
     pub node_number_of_chains: u16,
 }
 
 impl ChainwebClient {
     /// Create a new Chainweb client
     pub fn new(config: ChainwebClientConfig) -> Result<Self> {
-        let client = Client::builder()
-            .timeout(config.timeout)
+        let mut client_builder = Client::builder().timeout(config.timeout);
+
+        // Configure TLS settings
+        if config.insecure {
+            // Allow self-signed certificates
+            client_builder = client_builder
+                .danger_accept_invalid_certs(true)
+                .danger_accept_invalid_hostnames(true);
+        }
+
+        let client = client_builder
             .build()
             .map_err(|e| Error::network(format!("Failed to create HTTP client: {}", e)))?;
 
-        Ok(Self { config, client })
+        Ok(Self { config, client, node_version: None })
+    }
+
+    /// Set the node version (should be called after get_node_info)
+    pub fn set_node_version(&mut self, version: String) {
+        self.node_version = Some(version);
+    }
+
+    /// Get the node version, defaulting to "mainnet01" if not set
+    fn node_version(&self) -> &str {
+        self.node_version.as_deref().unwrap_or("mainnet01")
     }
 
     /// Get the base URL for the node
@@ -121,9 +131,9 @@ impl ChainwebClient {
     /// Get work from the node
     pub async fn get_work(&self) -> Result<(Work, Target)> {
         let url = format!(
-            "{}/chainweb/0.0/mainnet01/mining/work?chain={}",
+            "{}/chainweb/0.0/{}/mining/work",
             self.base_url(),
-            self.config.chain_id.value()
+            self.node_version()
         );
 
         let request = WorkRequest {
@@ -143,48 +153,65 @@ impl ChainwebClient {
             .map_err(|e| Error::network(format!("Failed to get work: {}", e)))?;
 
         if !response.status().is_success() {
+            let status = response.status();
+            if status == 404 {
+                return Err(Error::protocol(format!(
+                    "Mining work endpoint not found (404). The node may not have mining enabled. \
+                     For development nodes, ensure DISABLE_POW_VALIDATION=1 is set."
+                )));
+            }
             return Err(Error::protocol(format!(
                 "Work request failed: {}",
-                response.status()
+                status
             )));
         }
 
-        let work_response = response
-            .json::<WorkResponse>()
+        // The response is raw binary data: 4 bytes ChainId + 32 bytes Target + 286 bytes Work
+        let response_bytes = response
+            .bytes()
             .await
-            .map_err(|e| Error::network(format!("Failed to parse work response: {}", e)))?;
+            .map_err(|e| Error::network(format!("Failed to read work response: {}", e)))?;
 
-        // Decode work bytes from base64
-        let work_bytes = URL_SAFE_NO_PAD
-            .decode(&work_response.work_bytes)
-            .map_err(|e| Error::protocol(format!("Invalid work bytes: {}", e)))?;
+        if response_bytes.len() != 322 {
+            return Err(Error::protocol(format!(
+                "Invalid work response size: expected 322 bytes, got {}",
+                response_bytes.len()
+            )));
+        }
 
-        let work = Work::from_slice(&work_bytes)?;
-        let target = Target::from_hex(&work_response.target)?;
+        // Parse the binary response
+        // First 4 bytes: ChainId (little-endian)
+        let chain_id_bytes: [u8; 4] = response_bytes[0..4].try_into().unwrap();
+        let chain_id = u32::from_le_bytes(chain_id_bytes);
+        
+        // Verify the chain ID matches what we expect
+        if chain_id != self.config.chain_id.value() as u32 {
+            debug!("Received work for chain {}, expected {}", chain_id, self.config.chain_id.value());
+        }
 
-        debug!("Received work with target: {}", target);
+        // Next 32 bytes: Target (little-endian, 256-bit)
+        let target = Target::from_bytes_le(&response_bytes[4..36])?;
+
+        // Remaining 286 bytes: Work header
+        let work = Work::from_slice(&response_bytes[36..])?;
+
+        debug!("Received work for chain {} with target: {}", chain_id, target);
 
         Ok((work, target))
     }
 
     /// Submit a solution to the node
     pub async fn submit_solution(&self, work: &Work) -> Result<()> {
-        let url = format!(
-            "{}/chainweb/0.0/mainnet01/mining/solved",
-            self.base_url()
-        );
-
-        // Encode work bytes to base64
-        let work_bytes = URL_SAFE_NO_PAD.encode(work.as_bytes());
-
-        let request = SolutionRequest { work_bytes };
+        let url = format!("{}/chainweb/0.0/{}/mining/solved", self.base_url(), self.node_version());
 
         debug!("Submitting solution to: {}", url);
 
+        // Submit raw work bytes directly
         let response = self
             .client
             .post(&url)
-            .json(&request)
+            .header("Content-Type", "application/octet-stream")
+            .body(work.as_bytes().to_vec())
             .send()
             .await
             .map_err(|e| Error::network(format!("Failed to submit solution: {}", e)))?;
@@ -205,24 +232,37 @@ impl ChainwebClient {
 
     /// Subscribe to work updates via Server-Sent Events
     pub async fn subscribe_updates(&self) -> Result<impl futures::Stream<Item = Result<()>>> {
-        let url = format!(
-            "{}/chainweb/0.0/mainnet01/mining/updates",
-            self.base_url()
-        );
+        let url = format!("{}/chainweb/0.0/{}/mining/updates", self.base_url(), self.node_version());
 
         debug!("Subscribing to updates at: {}", url);
+
+        // Encode chain ID as 4-byte little-endian binary
+        let mut body = vec![0u8; 4];
+        body[0] = (self.config.chain_id.value() & 0xff) as u8;
+        body[1] = ((self.config.chain_id.value() >> 8) & 0xff) as u8;
+        body[2] = ((self.config.chain_id.value() >> 16) & 0xff) as u8;
+        body[3] = ((self.config.chain_id.value() >> 24) & 0xff) as u8;
 
         let response = self
             .client
             .get(&url)
+            .header("Content-Type", "application/octet-stream")
+            .body(body)
             .send()
             .await
             .map_err(|e| Error::network(format!("Failed to subscribe: {}", e)))?;
 
         if !response.status().is_success() {
+            let status = response.status();
+            if status == 404 {
+                return Err(Error::protocol(format!(
+                    "Mining updates endpoint not found (404). The node may not have mining enabled. \
+                     For development nodes, ensure DISABLE_POW_VALIDATION=1 is set."
+                )));
+            }
             return Err(Error::protocol(format!(
                 "Subscribe request failed: {}",
-                response.status()
+                status
             )));
         }
 
@@ -257,6 +297,7 @@ mod tests {
             public_key: "abc123".to_string(),
             timeout: Duration::from_secs(30),
             use_tls: true,
+            insecure: false,
         };
 
         let client = ChainwebClient::new(config).unwrap();
@@ -272,6 +313,7 @@ mod tests {
             public_key: "test".to_string(),
             timeout: Duration::from_secs(30),
             use_tls: false,
+            insecure: false,
         };
 
         let client = ChainwebClient::new(config).unwrap();
@@ -297,7 +339,7 @@ mod tests {
         let json = r#"{
             "nodeVersion": "2.19",
             "nodeApiVersion": "0.0",
-            "nodeChains": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+            "nodeChains": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
             "nodeNumberOfChains": 10
         }"#;
 
@@ -306,5 +348,27 @@ mod tests {
         assert_eq!(info.node_api_version, "0.0");
         assert_eq!(info.node_chains.len(), 10);
         assert_eq!(info.node_number_of_chains, 10);
+    }
+
+    #[test]
+    fn test_node_version_handling() {
+        let config = ChainwebClientConfig {
+            node_url: "api.chainweb.com".to_string(),
+            chain_id: ChainId::new(0),
+            account: "miner".to_string(),
+            public_key: "abc123".to_string(),
+            timeout: Duration::from_secs(30),
+            use_tls: true,
+            insecure: false,
+        };
+
+        let mut client = ChainwebClient::new(config).unwrap();
+        
+        // Test default version
+        assert_eq!(client.node_version(), "mainnet01");
+        
+        // Test setting custom version
+        client.set_node_version("testnet04".to_string());
+        assert_eq!(client.node_version(), "testnet04");
     }
 }

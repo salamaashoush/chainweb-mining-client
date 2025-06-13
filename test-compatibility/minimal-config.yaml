@@ -1,0 +1,44 @@
+# Minimal chainweb configuration for testing
+# Based on Kadena devnet minimal configuration
+
+# Use a fast block rate for testing
+blockRate: 5
+
+# Set initial difficulty low for testing
+initialHashTarget: "0x00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+
+# Configure for local testing
+p2p:
+  peer:
+    interface: 0.0.0.0
+    hostaddress:
+      hostname: localhost
+      port: 1789
+  private: false
+  ignoreBootstrapNodes: true
+
+# Mining API configuration
+mining:
+  coordination:
+    enabled: true
+    limit: 1000
+  api:
+    enabled: true
+
+# Service API configuration  
+serviceApi:
+  interface: 0.0.0.0
+  port: 1848
+
+# Enable all chains for testing
+chainIds: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]
+
+# Disable telemetry for testing
+telemetryBackend:
+  enabled: false
+
+# Configure cuts for faster testing
+cuts:
+  pruneChainDatabase: false
+  fetchTimeout: 3
+  syncInterval: 5

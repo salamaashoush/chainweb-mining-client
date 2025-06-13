@@ -26,7 +26,7 @@ pub enum StratumMethod {
 
 impl StratumMethod {
     /// Parse method from string
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse_method(s: &str) -> Self {
         match s {
             "mining.subscribe" => Self::Subscribe,
             "mining.authorize" => Self::Authorize,
@@ -77,7 +77,7 @@ impl StratumRequest {
 
     /// Get the method as enum
     pub fn method_enum(&self) -> StratumMethod {
-        StratumMethod::from_str(&self.method)
+        StratumMethod::parse_method(&self.method)
     }
 }
 
@@ -206,6 +206,7 @@ pub struct JobParams {
 
 impl JobParams {
     /// Convert to params array for notification
+    #[allow(dead_code)]
     pub fn to_params(&self) -> Vec<Value> {
         vec![
             Value::String(self.job_id.clone()),
@@ -233,12 +234,12 @@ mod tests {
     #[test]
     fn test_stratum_method() {
         assert_eq!(
-            StratumMethod::from_str("mining.subscribe"),
+            StratumMethod::parse_method("mining.subscribe"),
             StratumMethod::Subscribe
         );
         assert_eq!(StratumMethod::Subscribe.as_str(), "mining.subscribe");
 
-        let unknown = StratumMethod::from_str("custom.method");
+        let unknown = StratumMethod::parse_method("custom.method");
         assert!(matches!(unknown, StratumMethod::Unknown(_)));
     }
 
@@ -257,18 +258,11 @@ mod tests {
 
     #[test]
     fn test_stratum_response() {
-        let success = StratumResponse::success(
-            Value::Number(1.into()),
-            Value::Bool(true),
-        );
+        let success = StratumResponse::success(Value::Number(1.into()), Value::Bool(true));
         assert!(success.result.is_some());
         assert!(success.error.is_none());
 
-        let error = StratumResponse::error(
-            Value::Number(2.into()),
-            20,
-            "Invalid params",
-        );
+        let error = StratumResponse::error(Value::Number(2.into()), 20, "Invalid params");
         assert!(error.result.is_none());
         assert!(error.error.is_some());
     }

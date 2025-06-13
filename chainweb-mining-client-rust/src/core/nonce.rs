@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// Represents a 64-bit nonce used in mining
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(transparent)]
 pub struct Nonce(pub u64);
 
@@ -50,12 +50,6 @@ impl From<u64> for Nonce {
 impl From<Nonce> for u64 {
     fn from(nonce: Nonce) -> Self {
         nonce.0
-    }
-}
-
-impl Default for Nonce {
-    fn default() -> Self {
-        Self(0)
     }
 }
 

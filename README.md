@@ -2,26 +2,26 @@
 
 A mining client for Kadena's chainweb node mining API. It supports
 
-* mining with ASICs through a stratum server,
-* simulated mining for testing,
-* multi threaded CPU mining,
-* external mining workers (e.g. a GPU),
-* timed miners for non-PoW usecases.
+- mining with ASICs through a stratum server,
+- simulated mining for testing,
+- multi threaded CPU mining,
+- external mining workers (e.g. a GPU),
+- timed miners for non-PoW usecases.
 
-*Competitive mining on the Kadena Mainnet requires special mining hardware
-(ASIC), which connects to a Stratum Server from where it obtains work.*
+_Competitive mining on the Kadena Mainnet requires special mining hardware
+(ASIC), which connects to a Stratum Server from where it obtains work._
 
-*All other mining modes (GPU, CPU, and simulation) are intended only for testing.*
+_All other mining modes (GPU, CPU, and simulation) are intended only for testing._
 
-*   [Installation](#installation)
-*   [Usage](#usage)
-*   [Usage Examples](#usage-examples)
-    *  [Generating a New Key Pair](#generating-a-new-key-pair)
-    *  [Mining on Mainnet With an ASIC](#mining-on-mainnet-with-an-asic)
-    *  [CPU Mining](#cpu-mining)
-    *  [GPU Mining](#gpu-mining)
-    *  [Creating a Configuration File](#creating-a-configuration-file)
-*   [Related Resources](#related-resources)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Usage Examples](#usage-examples)
+  - [Generating a New Key Pair](#generating-a-new-key-pair)
+  - [Mining on Mainnet With an ASIC](#mining-on-mainnet-with-an-asic)
+  - [CPU Mining](#cpu-mining)
+  - [GPU Mining](#gpu-mining)
+  - [Creating a Configuration File](#creating-a-configuration-file)
+- [Related Resources](#related-resources)
 
 ## Installation
 
@@ -157,14 +157,13 @@ private: 64ef6379db5ef6004aff98182688c6e8b4a5229e706f1ccf6a73b05b1432aedf
 chainweb-mining-client needs access to the mining API of a full [Chainweb
 node](https://github.com/kadena-io/chainweb-node) in
 the Kadena Mainnet. The node must be configured to enable the mining API with
-the Pact *public* key (and, optionally, account name) of the miner. Rewards for
+the Pact _public_ key (and, optionally, account name) of the miner. Rewards for
 mined blocks will be credited to that account. The default is to use the `k:`
 account for the key.
 
 The `--enable-mining-coordination`, `--mining-public-key` can be used to
 configure chainweb-node for mining. The mining API is served on the service API
 port (default is 1848).
-
 
 Assuming that `example.com` serves the chainweb-node mining API on port 1848,
 the following command can be used to run chainweb-mining-client with the stratum
@@ -221,8 +220,7 @@ more than that number of hashes within the provided time range. For instance,
 for an miner that performs 140TH/s the `--stratum-rate` should be at most 2000 milliseconds
 (2 seconds).
 
-The `--stratum-difficulty` parameter expects a integral number between 0 and
-256. It denotes the difficulty as a logarithm of base 2. In practice the actual
+The `--stratum-difficulty` parameter expects a integral number between 0 and 256. It denotes the difficulty as a logarithm of base 2. In practice the actual
 target uses a difficulty level of at least 42 and at most the difficulty of
 block of the current work.
 
@@ -285,11 +283,10 @@ node running in development mode can disable the PoW validity check by setting
 the DISABLE_POW_VALIDATION environment variable to `1`, making these modes
 produce valid blocks.
 
-The modes are:
-    1. simulation. This mode accepts a hash rate via `--hash-rate`, for example
-       `--hash-rate 100M` and produces a block with a delay congruent with
-       running a real miner at the given hash rate, given the difficulty of the
-       block header being mined.
+The modes are: 1. simulation. This mode accepts a hash rate via `--hash-rate`, for example
+`--hash-rate 100M` and produces a block with a delay congruent with
+running a real miner at the given hash rate, given the difficulty of the
+block header being mined.
 
        This mode is useful for testing difficulty adjustment, but because block
        mining times have a long tail, it may be time consuming.
@@ -338,7 +335,7 @@ logLevel: info
 node: example.com:1848
 publicKey: 87ef8fdb229ad10285ae191a168ea2ec0794621a127df21e372f41fd0246e4cf
 stratumDifficulty: 50
-stratumInterface: '*'
+stratumInterface: "*"
 stratumPort: 1917
 threadCount: 10
 useTls: true
@@ -353,8 +350,8 @@ chainweb-mining-client --config-file config.yml
 
 ## Related Resources
 
-*   [Chainweb Node Project Page](https://github.com/kadena-io/chainweb-node)
-*   [Kadena Stratum Protocol](https://gist.github.com/mightybyte/f1567c2bec0380539c638225fb8c1cf4)
-*   [mining API of chainweb-node](https://api.chainweb.com/openapi/#tag/mining)
-*   [work header format](https://github.com/kadena-io/chainweb-node/wiki/Block-Header-Binary-Encoding#work-header-binary-format).
-*   [mining API wiki](https://github.com/kadena-io/chainweb-node/wiki/Mining-API).
+- [Chainweb Node Project Page](https://github.com/kadena-io/chainweb-node)
+- [Kadena Stratum Protocol](https://gist.github.com/mightybyte/f1567c2bec0380539c638225fb8c1cf4)
+- [mining API of chainweb-node](https://api.chainweb.com/openapi/#tag/mining)
+- [work header format](https://github.com/kadena-io/chainweb-node/wiki/Block-Header-Binary-Encoding#work-header-binary-format).
+- [mining API wiki](https://github.com/kadena-io/chainweb-node/wiki/Mining-API).

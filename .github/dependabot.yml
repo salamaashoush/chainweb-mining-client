@@ -1,0 +1,42 @@
+version: 2
+updates:
+  # Enable version updates for Rust (Cargo)
+  - package-ecosystem: "cargo"
+    directory: "/chainweb-mining-client-rust"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "salamaashoush"
+    commit-message:
+      prefix: "rust"
+      include: "scope"
+    groups:
+      # Group security updates
+      security-updates:
+        applies-to: security-updates
+        patterns:
+          - "*"
+      # Group minor and patch updates for core dependencies
+      core-dependencies:
+        patterns:
+          - "tokio*"
+          - "serde*"
+          - "clap*"
+          - "reqwest*"
+          - "axum*"
+      # Group development dependencies
+      dev-dependencies:
+        dependency-type: "development"
+        patterns:
+          - "*test*"
+          - "*mock*"
+          - "criterion*"
+          - "proptest*"
+
+  # Enable version updates for GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5

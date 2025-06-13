@@ -6,19 +6,37 @@ use std::fmt;
 
 /// Represents a 256-bit mining target (difficulty threshold)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Target([u8; 32]);
+pub struct Target(pub [u8; 32]);
 
 impl Target {
-    /// Create a new Target from bytes
+    /// Create a new Target from bytes (big-endian)
     pub fn from_bytes(bytes: [u8; 32]) -> Self {
         Self(bytes)
     }
 
+    /// Create a Target from little-endian bytes
+    pub fn from_bytes_le(bytes: &[u8]) -> Result<Self> {
+        if bytes.len() != 32 {
+            return Err(Error::invalid_target(format!(
+                "Expected 32 bytes, got {}",
+                bytes.len()
+            )));
+        }
+
+        let mut array = [0u8; 32];
+        array.copy_from_slice(bytes);
+        
+        // Reverse bytes to convert from little-endian to big-endian
+        array.reverse();
+        
+        Ok(Self(array))
+    }
+
     /// Create a Target from a hex string
     pub fn from_hex(hex: &str) -> Result<Self> {
-        let bytes = hex::decode(hex)
-            .map_err(|e| Error::invalid_target(format!("Invalid hex: {}", e)))?;
-        
+        let bytes =
+            hex::decode(hex).map_err(|e| Error::invalid_target(format!("Invalid hex: {}", e)))?;
+
         if bytes.len() != 32 {
             return Err(Error::invalid_target(format!(
                 "Expected 32 bytes, got {}",
@@ -38,14 +56,14 @@ impl Target {
 
     /// Convert to hex string
     pub fn to_hex(&self) -> String {
-        hex::encode(&self.0)
+        hex::encode(self.0)
     }
 
     /// Check if a hash meets this target (is below it)
     pub fn meets_target(&self, hash: &[u8; 32]) -> bool {
         // Compare as big-endian integers
-        for i in 0..32 {
-            match hash[i].cmp(&self.0[i]) {
+        for (hash_byte, target_byte) in hash.iter().zip(self.0.iter()) {
+            match hash_byte.cmp(target_byte) {
                 std::cmp::Ordering::Less => return true,
                 std::cmp::Ordering::Greater => return false,
                 std::cmp::Ordering::Equal => continue,
@@ -73,6 +91,30 @@ impl Target {
         Ok(Self(bytes))
     }
 
+    /// Create a target with a specific number of leading zero bits
+    pub fn from_difficulty_bits(leading_zeros: u32) -> Self {
+        let mut bytes = [0xFFu8; 32];
+
+        if leading_zeros >= 256 {
+            return Self([0u8; 32]);
+        }
+
+        let zero_bytes = (leading_zeros / 8) as usize;
+        let remaining_bits = (leading_zeros % 8) as u8;
+
+        // Set full zero bytes
+        for byte in bytes.iter_mut().take(zero_bytes.min(32)) {
+            *byte = 0;
+        }
+
+        // Set partial byte if needed
+        if zero_bytes < 32 && remaining_bits > 0 {
+            bytes[zero_bytes] = 0xFF >> remaining_bits;
+        }
+
+        Self(bytes)
+    }
+
     /// Get difficulty from target
     pub fn to_difficulty(&self) -> f64 {
         // Simplified difficulty calculation
@@ -80,11 +122,11 @@ impl Target {
         for &byte in &self.0[24..32] {
             value = (value << 8) | (byte as u64);
         }
-        
+
         if value == 0 {
             return f64::MAX;
         }
-        
+
         (u64::MAX as f64) / (value as f64)
     }
 }
@@ -134,24 +176,27 @@ mod tests {
 
     #[test]
     fn test_target_meets_target() {
-        let target_bytes = [0x00, 0x00, 0x00, 0x0F, 0xFF, 0xFF, 0xFF, 0xFF,
-                           0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-                           0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-                           0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
+        let target_bytes = [
+            0x00, 0x00, 0x00, 0x0F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            0xFF, 0xFF, 0xFF, 0xFF,
+        ];
         let target = Target::from_bytes(target_bytes);
 
         // Hash that meets target
-        let good_hash = [0x00, 0x00, 0x00, 0x0E, 0xFF, 0xFF, 0xFF, 0xFF,
-                        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-                        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-                        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
+        let good_hash = [
+            0x00, 0x00, 0x00, 0x0E, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            0xFF, 0xFF, 0xFF, 0xFF,
+        ];
         assert!(target.meets_target(&good_hash));
 
         // Hash that doesn't meet target
-        let bad_hash = [0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00,
-                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        let bad_hash = [
+            0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+        ];
         assert!(!target.meets_target(&bad_hash));
 
         // Equal hash doesn't meet target
@@ -162,10 +207,10 @@ mod tests {
     fn test_target_serde() {
         let hex = "00000000ffff0000000000000000000000000000000000000000000000000000";
         let target = Target::from_hex(hex).unwrap();
-        
+
         let json = serde_json::to_string(&target).unwrap();
         assert_eq!(json, format!("\"{}\"", hex));
-        
+
         let deserialized: Target = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized, target);
     }
@@ -175,5 +220,28 @@ mod tests {
         assert!(Target::from_hex("invalid").is_err());
         assert!(Target::from_hex("00").is_err()); // Too short
         assert!(Target::from_hex(&"00".repeat(33)).is_err()); // Too long
+    }
+
+    #[test]
+    fn test_target_from_bytes_le() {
+        // Test with a simple pattern
+        let mut le_bytes = [0u8; 32];
+        le_bytes[0] = 0x01; // Least significant byte
+        le_bytes[31] = 0xFF; // Most significant byte
+
+        let target = Target::from_bytes_le(&le_bytes).unwrap();
+        
+        // After reversal, 0xFF should be at index 0 and 0x01 at index 31
+        assert_eq!(target.as_bytes()[0], 0xFF);
+        assert_eq!(target.as_bytes()[31], 0x01);
+
+        // Test with all zeros
+        let zero_bytes = [0u8; 32];
+        let zero_target = Target::from_bytes_le(&zero_bytes).unwrap();
+        assert_eq!(zero_target.as_bytes(), &[0u8; 32]);
+
+        // Test with invalid length
+        assert!(Target::from_bytes_le(&[0u8; 31]).is_err());
+        assert!(Target::from_bytes_le(&[0u8; 33]).is_err());
     }
 }

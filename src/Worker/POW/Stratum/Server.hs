@@ -3,7 +3,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
-
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
 
 -- |
@@ -14,14 +13,14 @@
 -- Stability: experimental
 --
 -- TODO
---
 module Worker.POW.Stratum.Server
-( withStratumServer
-, Job(..)
-, StratumServerCtx(..) -- TODO only expose API
-, StratumDifficulty(..)
-, stratumDifficultyFromText
-) where
+  ( withStratumServer,
+    Job (..),
+    StratumServerCtx (..), -- TODO only expose API
+    StratumDifficulty (..),
+    stratumDifficultyFromText,
+  )
+where
 
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
@@ -29,41 +28,33 @@ import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
-
 import qualified Data.Aeson as A
 import qualified Data.Aeson.Types as A
-import qualified Data.Attoparsec.ByteString as P
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.HashMap.Strict as HM
-import Data.Int
 import Data.IORef
+import Data.Int
 import Data.Maybe
 import Data.Streaming.Network
 import qualified Data.Text as T
-
-import Network.HostAddress
-
-import Numeric.Natural
-
-import qualified Streaming.Prelude as S
-
-import System.Clock
-import System.IO.Unsafe
-import qualified System.LogLevel as L
-import System.Random.MWC
-
-import Text.Read
-
 -- internal modules
 
 import JsonRpc
 import Logger
+import Network.HostAddress
+import Numeric.Natural
+import qualified Streaming.Prelude as S
+import System.Clock
+import System.IO.Unsafe
+import qualified System.LogLevel as L
+import System.Random.MWC
 import Target
+import Text.Read
 import Utils
 import Worker
-import WorkerUtils
 import Worker.POW.Stratum.Protocol
+import WorkerUtils
 
 -- -------------------------------------------------------------------------- --
 -- Clients and Shares
@@ -72,32 +63,30 @@ import Worker.POW.Stratum.Protocol
 --
 -- nonce1Size :: NonceSize
 -- nonce1Size = 2
-
 data PoolCtx = PoolCtx
-    { _workerAuthorization :: Authorize
-    }
+  { _workerAuthorization :: Authorize
+  }
 
 -- | A share is a solution of a job with respect to the session target.
 --
 -- Shares are the basis for paying out miners. This structure stores all
 -- information about a share that is needed for a pool to implement differnt
 -- payment methods.
---
 data Share = Share
-    { _shareId :: !JobId
-    , _shareTarget :: !Target
-    , _shareWork :: !Work
-        -- ^ work with nonce of the share
-    , _shareMiner :: !Username
-    , _shareWorkerId :: !ClientWorker
-    , _shareIsBlock :: !Bool
-    }
+  { _shareId :: !JobId,
+    _shareTarget :: !Target,
+    -- | work with nonce of the share
+    _shareWork :: !Work,
+    _shareMiner :: !Username,
+    _shareWorkerId :: !ClientWorker,
+    _shareIsBlock :: !Bool
+  }
 
 data MiningClient = MiningClient
-    { _miningClientNonce1 :: !Nonce1
-    , _miningClientCurrentTarget :: !Target
-    , _miningClientShares :: !Share
-    }
+  { _miningClientNonce1 :: !Nonce1,
+    _miningClientCurrentTarget :: !Target,
+    _miningClientShares :: !Share
+  }
 
 -- authorize :: Username -> WorkerId -> Password -> IO Bool
 -- authorize = error "TODO"
@@ -107,7 +96,7 @@ data MiningClient = MiningClient
 
 serverSalt :: Int
 serverSalt = unsafePerformIO $ do
-    createSystemRandom >>= uniform
+  createSystemRandom >>= uniform
 {-# NOINLINE serverSalt #-}
 
 type Authorize = Username -> Password -> IO (Either T.Text ())
@@ -116,16 +105,16 @@ type Authorize = Username -> Password -> IO (Either T.Text ())
 --
 -- Job: global from worker, solution for block
 -- Share: session, solution for share target
---
 data Job = Job
-    { _jobId :: !JobId
-    , _jobTarget :: !Target
-    , _jobWork :: !Work
-    , _jobResult :: !(MVar Nonce)
-    }
+  { _jobId :: !JobId,
+    _jobTarget :: !Target,
+    _jobWork :: !Work,
+    _jobResult :: !(MVar Nonce)
+  }
 
 incrementJobTime :: Int64 -> Job -> Job
-incrementJobTime i job = job
+incrementJobTime i job =
+  job
     { _jobWork = incrementTimeMicros i (_jobWork job)
     }
 
@@ -149,56 +138,51 @@ noopJob = unsafePerformIO $ Job noJobId nullTarget (Work "") <$> newEmptyMVar
 --
 -- JobIds are used to match solutions (nonces) to the respective work work
 -- items.
---
 data StratumServerCtx = StratumServerCtx
-    { _ctxAuthorizeFn :: !Authorize
-        -- ^ function for user authentication and authorization. This sets
-        -- the public key for paying out the mining rewards for a session.
-        --
-        -- Kadena pools don't use passwords and the scope of authorization is
-        -- the stratum session.
-        --
-        -- For bookkeeping it is also possible to associate a device/worker id
-        -- with the shares from a session.
-
-    , _ctxJobs :: !(TVar (HM.HashMap JobId Job))
-        -- ^ there might be some contention on this variable, but we don't care
-        -- too much. It is modified only by the workers, which access it for
-        -- each new work item that they get. That's roughly the block rate
-        -- time the numbers of worker. The latter number should be small.
-        -- (there's little benefit in having a larger number)
-        --
-        -- It is read by all sessions using readTVarIO. If a job disappears
-        -- while processing the share, the share is still counted, even if the
-        -- block is solved in between. So, the time of the `readTVarIO` of the
-        -- job marks the point in time until a share must be found. (we could
-        -- change that by doing another read + job lookup when the share is
-        -- recorded)
-        --
-        -- Solutions are synchronized on the result MVar within a job.
-        -- Contention on that is much lower, since only valid solution are
-        -- submitted to that variable.
-
-    , _ctxCurrentJob :: !(TVar Job)
-        -- ^ the most recent job. This is used as basis for the job stream
-        -- of each session. There is no guarantee that each session sees each
-        -- job. Actually, it may even make sense for sessions to ignore some of
-        -- these in order to reduce the number of notifications that are send to
-        -- the client.
-
-    , _ctxCurrentId :: !(IORef JobId)
-        -- ^ Ticket counter for job ids.
-
-    , _ctxDifficulty :: !StratumDifficulty
-
-    , _ctxRate :: !Natural
-        -- ^ Rate in milliseconds at which a jobs for a given work item are
-        -- emitted. Note that each indiviual stratum worker will emit jobs at
-        -- this rate.
-    }
+  { -- | function for user authentication and authorization. This sets
+    -- the public key for paying out the mining rewards for a session.
+    --
+    -- Kadena pools don't use passwords and the scope of authorization is
+    -- the stratum session.
+    --
+    -- For bookkeeping it is also possible to associate a device/worker id
+    -- with the shares from a session.
+    _ctxAuthorizeFn :: !Authorize,
+    -- | there might be some contention on this variable, but we don't care
+    -- too much. It is modified only by the workers, which access it for
+    -- each new work item that they get. That's roughly the block rate
+    -- time the numbers of worker. The latter number should be small.
+    -- (there's little benefit in having a larger number)
+    --
+    -- It is read by all sessions using readTVarIO. If a job disappears
+    -- while processing the share, the share is still counted, even if the
+    -- block is solved in between. So, the time of the `readTVarIO` of the
+    -- job marks the point in time until a share must be found. (we could
+    -- change that by doing another read + job lookup when the share is
+    -- recorded)
+    --
+    -- Solutions are synchronized on the result MVar within a job.
+    -- Contention on that is much lower, since only valid solution are
+    -- submitted to that variable.
+    _ctxJobs :: !(TVar (HM.HashMap JobId Job)),
+    -- | the most recent job. This is used as basis for the job stream
+    -- of each session. There is no guarantee that each session sees each
+    -- job. Actually, it may even make sense for sessions to ignore some of
+    -- these in order to reduce the number of notifications that are send to
+    -- the client.
+    _ctxCurrentJob :: !(TVar Job),
+    -- | Ticket counter for job ids.
+    _ctxCurrentId :: !(IORef JobId),
+    _ctxDifficulty :: !StratumDifficulty,
+    -- | Rate in milliseconds at which a jobs for a given work item are
+    -- emitted. Note that each indiviual stratum worker will emit jobs at
+    -- this rate.
+    _ctxRate :: !Natural
+  }
 
 newStratumServerCtx :: StratumDifficulty -> Natural -> IO StratumServerCtx
-newStratumServerCtx spec rate = StratumServerCtx
+newStratumServerCtx spec rate =
+  StratumServerCtx
     (\_ _ -> return (Right ()))
     <$> newTVarIO mempty
     <*> newTVarIO noopJob
@@ -213,7 +197,6 @@ newStratumServerCtx spec rate = StratumServerCtx
 --
 -- This leaves about 2^(6*8) different nonces for the miner. That's corresponds
 -- to 280TH. So a miner with 280TH/s would exhaustively search this space in 1s.
---
 defaultNonce1Size :: NonceSize
 defaultNonce1Size = fromJust $ nonceSize @Int 2
 
@@ -221,52 +204,51 @@ sessionNonce2Size :: SessionState -> NonceSize
 sessionNonce2Size = complementNonceSize . nonce1Size . _sessionNonce1
 
 data SessionState = SessionState
-    { _sessionNonce1 :: !Nonce1
-        -- ^ a fixed unique nonce that is derived from the application
-        -- and a server salt. It is used as prefix to provide the session
-        -- with a private space of nonces.
-    , _sessionTarget :: !(TVar Target)
-    , _authorized :: !(TMVar Username)
-    , _subscribed :: !(TMVar Agent)
-
+  { -- | a fixed unique nonce that is derived from the application
+    -- and a server salt. It is used as prefix to provide the session
+    -- with a private space of nonces.
+    _sessionNonce1 :: !Nonce1,
+    _sessionTarget :: !(TVar Target),
+    _authorized :: !(TMVar Username),
+    _subscribed :: !(TMVar Agent),
     -- the followint entries are used to compute the estimated hashrate
-    , _sessionLastShare :: !(TVar TimeSpec)
-    , _sessionHashRateSum :: !(TVar HashRate)
-    , _sessionShardCount :: !(TVar Int)
-        -- ^ Estiumated hash rate of current session. Meassured as Hashes per second
-    }
+    _sessionLastShare :: !(TVar TimeSpec),
+    _sessionHashRateSum :: !(TVar HashRate),
+    -- | Estiumated hash rate of current session. Meassured as Hashes per second
+    _sessionShardCount :: !(TVar Int)
+  }
 
 estimateHashRate :: SessionState -> IO HashRate
 estimateHashRate ctx = do
-    now <- getTime Monotonic
+  now <- getTime Monotonic
 
-    atomically $ do
-        lastShare <- swapTVar (_sessionLastShare  ctx) now
-        Difficulty currentDifficulty <- targetToDifficulty <$> readTVar (_sessionTarget ctx)
-        HashRate prevR <- readTVar (_sessionHashRateSum ctx)
-        curCount <- (+ 1) <$> readTVar (_sessionShardCount ctx)
+  atomically $ do
+    lastShare <- swapTVar (_sessionLastShare ctx) now
+    Difficulty currentDifficulty <- targetToDifficulty <$> readTVar (_sessionTarget ctx)
+    HashRate prevR <- readTVar (_sessionHashRateSum ctx)
+    curCount <- (+ 1) <$> readTVar (_sessionShardCount ctx)
 
-        let currentPeriodSeconds = realToFrac (toNanoSecs (diffTimeSpec now lastShare)) / 1_000_000_000
-        let recentHashRate = currentDifficulty / currentPeriodSeconds
-        let newAvgHashRateSum = prevR + recentHashRate
+    let currentPeriodSeconds = realToFrac (toNanoSecs (diffTimeSpec now lastShare)) / 1_000_000_000
+    let recentHashRate = currentDifficulty / currentPeriodSeconds
+    let newAvgHashRateSum = prevR + recentHashRate
 
-        writeTVar (_sessionHashRateSum ctx) $ HashRate newAvgHashRateSum
-        writeTVar (_sessionShardCount ctx) curCount
+    writeTVar (_sessionHashRateSum ctx) $ HashRate newAvgHashRateSum
+    writeTVar (_sessionShardCount ctx) curCount
 
-        return $ HashRate $ newAvgHashRateSum / int curCount
+    return $ HashRate $ newAvgHashRateSum / int curCount
 
 data AppResult
-    = JsonRpcError T.Text
-    | StratumError T.Text
-    | TimeoutError T.Text
-    | ConnectionClosed T.Text
-    deriving (Show, Eq, Ord)
+  = JsonRpcError T.Text
+  | StratumError T.Text
+  | TimeoutError T.Text
+  | ConnectionClosed T.Text
+  deriving (Show, Eq, Ord)
 
 instance Exception AppResult
 
 type RequestStream = S.Stream (S.Of MiningRequest) IO AppResult
 
-send :: A.ToJSON a => AppData -> a -> IO ()
+send :: (A.ToJSON a) => AppData -> a -> IO ()
 send app a = appWrite app (BL.toStrict $ A.encode a) >> appWrite app "\n"
 
 replyError :: AppData -> Error -> IO ()
@@ -280,9 +262,8 @@ targetPeriod = Period 10
 
 notify :: Logger -> AppData -> SessionState -> Job -> IO ()
 notify logger app _sessionCtx job = do
-    writeLog logger L.Info "sending notification"
-    send app $ Notify (_jobId job, _jobWork job, True) -- for now we always replace previous work
-
+  writeLog logger L.Info "sending notification"
+  send app $ Notify (_jobId job, _jobWork job, True) -- for now we always replace previous work
 
 -- | TODO: we probably need some protection against clients keeping
 -- connections open without making progress.
@@ -290,26 +271,26 @@ notify logger app _sessionCtx job = do
 -- * limit size of messages and fail parsing if the limit is exeeced
 -- * add timeout within parsing of a single message
 -- * add timeout for time between messages?
---
---
 messages :: SessionState -> AppData -> RequestStream
 messages sessionCtx app = go mempty
   where
     n2s = sessionNonce2Size sessionCtx
 
     go :: B.ByteString -> S.Stream (S.Of MiningRequest) IO AppResult
-    go i = P.parseWith (liftIO (appRead app)) A.json' i >>= \case
-        P.Fail _ path err ->
-            return $ JsonRpcError $ "Failed to parse JSON RPC message: " <> T.pack err <> " " <> sshow path
-        P.Partial _cont ->
-            -- Can this actually happen, or would it a P.Fail?
-            return $ ConnectionClosed "Connection closed unexpectedly"
-        P.Done i' val -> case A.parse (parseMiningRequest n2s) val of
-            A.Error err ->
-                return $ StratumError $ "Unrecognized message: " <> T.pack err <> ". " <> sshow val
-            A.Success result -> do
-                S.yield result
-                go i'
+    go i = do
+      chunk <- liftIO (appRead app)
+      let fullData = i <> chunk
+      case A.eitherDecode (BL.fromStrict fullData) of
+        Left _err ->
+          if B.null chunk
+            then return $ ConnectionClosed "Connection closed unexpectedly"
+            else go fullData -- Accumulate more data
+        Right val -> case A.parse (parseMiningRequest n2s) val of
+          A.Error err ->
+            return $ StratumError $ "Unrecognized message: " <> T.pack err <> ". " <> sshow val
+          A.Success result -> do
+            S.yield result
+            go mempty -- Reset buffer after successful parse
 
 -- -------------------------------------------------------------------------- --
 -- Stratum Server Config
@@ -320,7 +301,7 @@ data StratumDifficulty
   | DifficultyPeriod Period
   deriving (Show, Eq, Ord)
 
-stratumDifficultyFromText :: MonadThrow m => T.Text -> m StratumDifficulty
+stratumDifficultyFromText :: (MonadThrow m) => T.Text -> m StratumDifficulty
 stratumDifficultyFromText "block" = return WorkDifficulty
 stratumDifficultyFromText t = case readEither @Int $ T.unpack t of
   Right n
@@ -337,7 +318,7 @@ instance A.ToJSON StratumDifficulty where
 instance A.FromJSON StratumDifficulty where
   parseJSON v = case v of
     A.String "block" -> return WorkDifficulty
-    i@A.Number{} -> DifficultyLevel <$> A.parseJSON i
+    i@A.Number {} -> DifficultyLevel <$> A.parseJSON i
     e -> fail $ "failed to parse stratum difficulty specification: " <> show e
 
 -- -------------------------------------------------------------------------- --
@@ -351,12 +332,10 @@ instance A.FromJSON StratumDifficulty where
 -- processed down stream has no benefit and can even be harmful.
 --
 -- TODO: this should be configurable (possibly also on a per agent base)
---
 maxSessionTarget :: Target
 maxSessionTarget = mkTargetLevel $ level (42 :: Int)
 
 -- | Start easy, the target will adjust quickly
---
 initialTarget :: Target
 initialTarget = maxSessionTarget
 
@@ -364,26 +343,25 @@ periodTolerance :: Double
 periodTolerance = 0.25
 
 -- | Purely compute a new session target
---
-getNewSessionTarget
-    :: StratumDifficulty
-        -- ^ type of target computation
-    -> HashRate
-        -- ^ Current estimated hash rate
-    -> Target
-        -- ^ Current session target
-    -> Target
-        -- ^ job target
-    -> Maybe Target
-        -- ^ updated target
+getNewSessionTarget ::
+  -- | type of target computation
+  StratumDifficulty ->
+  -- | Current estimated hash rate
+  HashRate ->
+  -- | Current session target
+  Target ->
+  -- | job target
+  Target ->
+  -- | updated target
+  Maybe Target
 getNewSessionTarget stratumDifficulty currentHashRate currentTarget jobTarget
-    | newTarget == currentTarget = Nothing
-    | otherwise = Just newTarget
+  | newTarget == currentTarget = Nothing
+  | otherwise = Just newTarget
   where
     newTarget = case stratumDifficulty of
-        WorkDifficulty -> jobTarget
-        DifficultyLevel l -> mkTargetLevel l
-        DifficultyPeriod p -> newPeriodTarget p
+      WorkDifficulty -> jobTarget
+      DifficultyLevel l -> mkTargetLevel l
+      DifficultyPeriod p -> newPeriodTarget p
 
     -- The final target must be inbetween maxSessionTarget and jobTarget
     newPeriodTarget _p = max jobTarget (min maxSessionTarget candidate)
@@ -393,56 +371,67 @@ getNewSessionTarget stratumDifficulty currentHashRate currentTarget jobTarget
         candidate = leveled $ difficultyToTarget newD
 
 -- | Update the session target when a new share is found.
---
-updateSessionTarget
-    :: Logger
-    -> StratumServerCtx
-    -> AppData
-    -> SessionState
-    -> Job
-    -> IO ()
+updateSessionTarget ::
+  Logger ->
+  StratumServerCtx ->
+  AppData ->
+  SessionState ->
+  Job ->
+  IO ()
 updateSessionTarget logger serverCtx app sessionCtx job = do
+  newHashRate <- estimateHashRate sessionCtx
 
-    newHashRate <- estimateHashRate sessionCtx
+  -- there is the chance of some race here, if we get several shares
+  -- concurrently. It's possible that the effective target doesn't match the
+  -- latest update of the period. We anways consider all previous targets, So
+  -- not sure how much we care about this race.
 
-    -- there is the chance of some race here, if we get several shares
-    -- concurrently. It's possible that the effective target doesn't match the
-    -- latest update of the period. We anways consider all previous targets, So
-    -- not sure how much we care about this race.
-
-    -- FIXME Find out whether changing target slows down the ASICs
+  -- FIXME Find out whether changing target slows down the ASICs
+  --
+  -- TODO: the pool context should provide guidance what session target
+  -- should be used.
+  --
+  currentTarget <- readTVarIO (_sessionTarget sessionCtx)
+  writeLog logger L.Info $
+    "calculating new target"
+      <> "; hashrate: "
+      <> sshow newHashRate
+      <> "; "
+      <> prettyTarget "session" currentTarget
+      <> "; "
+      <> prettyTarget "job" (_jobTarget job)
+      <> "; target Priod: "
+      <> sshow targetPeriod
+  case getNewSessionTarget (_ctxDifficulty serverCtx) newHashRate currentTarget (_jobTarget job) of
+    Just t -> do
+      writeLog logger L.Info $
+        "setting session target"
+          <> "; "
+          <> prettyTarget "new" t
+          <> "; "
+          <> prettyTarget "old" currentTarget
+          <> "; "
+          <> prettyTarget "job" (_jobTarget job)
+          <> "; hashrate: "
+          <> sshow newHashRate
+      send app $ SetTarget $ T1 t
+      atomically $ writeTVar (_sessionTarget sessionCtx) t
+    -- Note, that there is a small chance of a race here, if the device is really fast
+    -- and returns a solution before this is updated. We could solve that by
+    -- making the target a TMVar or MVar and taking it before we send the
+    -- "mining.set_target".
     --
-    -- TODO: the pool context should provide guidance what session target
-    -- should be used.
-    --
-    currentTarget <- readTVarIO (_sessionTarget sessionCtx)
-    writeLog logger L.Info $ "calculating new target"
-        <> "; hashrate: " <> sshow newHashRate
-        <> "; " <> prettyTarget "session" currentTarget
-        <> "; " <> prettyTarget "job" (_jobTarget job)
-        <> "; target Priod: " <> sshow targetPeriod
-    case getNewSessionTarget (_ctxDifficulty serverCtx) newHashRate currentTarget (_jobTarget job) of
-        Just t -> do
-            writeLog logger L.Info $ "setting session target"
-                <> "; " <> prettyTarget "new" t
-                <> "; " <> prettyTarget "old" currentTarget
-                <> "; " <> prettyTarget "job" (_jobTarget job)
-                <> "; hashrate: " <> sshow newHashRate
-            send app $ SetTarget $ T1 t
-            atomically $ writeTVar (_sessionTarget sessionCtx) t
-                -- Note, that there is a small chance of a race here, if the device is really fast
-                -- and returns a solution before this is updated. We could solve that by
-                -- making the target a TMVar or MVar and taking it before we send the
-                -- "mining.set_target".
-                --
-                -- Most likely target changes are minor and shares are accepted even in
-                -- case of a race.
+    -- Most likely target changes are minor and shares are accepted even in
+    -- case of a race.
 
-        Nothing -> do
-            t <- readTVarIO $ _sessionTarget sessionCtx
-            writeLog logger L.Info $ "session target unchanged"
-                <> "; " <> prettyTarget "session" t
-                <> "; " <> prettyTarget "job" (_jobTarget job)
+    Nothing -> do
+      t <- readTVarIO $ _sessionTarget sessionCtx
+      writeLog logger L.Info $
+        "session target unchanged"
+          <> "; "
+          <> prettyTarget "session" t
+          <> "; "
+          <> prettyTarget "job" (_jobTarget job)
   where
     prettyTarget :: T.Text -> Target -> T.Text
     prettyTarget l t = l <> " " <> sshow t <> "[" <> sshow (getTargetLevel t) <> "]"
@@ -452,193 +441,200 @@ updateSessionTarget logger serverCtx app sessionCtx job = do
 
 initialSessionState :: AppData -> IO SessionState
 initialSessionState app = do
-    SessionState sessionNonce1
-        <$> newTVarIO initialTarget
-        <*> newEmptyTMVarIO
-        <*> newEmptyTMVarIO
-        <*> (getTime Monotonic >>= newTVarIO)
-        <*> newTVarIO (HashRate 0)
-        <*> newTVarIO 0
+  SessionState sessionNonce1
+    <$> newTVarIO initialTarget
+    <*> newEmptyTMVarIO
+    <*> newEmptyTMVarIO
+    <*> (getTime Monotonic >>= newTVarIO)
+    <*> newTVarIO (HashRate 0)
+    <*> newTVarIO 0
   where
-    sessionNonce1 = deriveNonce1 defaultNonce1Size serverSalt
-        $ show (appSockAddr app) <> show (appLocalAddr app)
+    sessionNonce1 =
+      deriveNonce1 defaultNonce1Size serverSalt $
+        show (appSockAddr app) <> show (appLocalAddr app)
 
 session :: Logger -> StratumServerCtx -> AppData -> IO ()
 session l ctx app = withLogTag l "Stratum Session" $ \l2 -> withLogTag l2 (sshow (appSockAddr app)) $ \logger ->
-    flip finally (appCloseConnection app) $ do
-        sessionCtx <- initialSessionState app
-        writeLog logger L.Info $ "new session"
-            <> "; sessionNonce1 " <> sshow (_sessionNonce1 sessionCtx)
+  flip finally (appCloseConnection app) $ do
+    sessionCtx <- initialSessionState app
+    writeLog logger L.Info $
+      "new session"
+        <> "; sessionNonce1 "
+        <> sshow (_sessionNonce1 sessionCtx)
 
-        -- Run Request Stream and Job Stream
-        r <- race (processRequests logger sessionCtx) $ do
-            awaitSubscribe sessionCtx
+    -- Run Request Stream and Job Stream
+    r <- race (processRequests logger sessionCtx) $ do
+      awaitSubscribe sessionCtx
 
-            -- initial target
-            now <- getTime Monotonic
-            atomically $ writeTVar (_sessionLastShare sessionCtx) now
-            curJob <- liftIO $ readTVarIO (_ctxCurrentJob ctx)
-            let jt = _jobTarget curJob
-            -- TODO not sure what is a good starting value...
-            -- let t = max jt (min maxSessionTarget (avgTarget maxSessionTarget jt))
-            let t = max jt maxSessionTarget
-            writeLog logger L.Info $ "setting initial session target: " <> sshow t
-            atomically $ writeTVar (_sessionTarget sessionCtx) t
-            send app $ SetTarget $ T1 t
+      -- initial target
+      now <- getTime Monotonic
+      atomically $ writeTVar (_sessionLastShare sessionCtx) now
+      curJob <- liftIO $ readTVarIO (_ctxCurrentJob ctx)
+      let jt = _jobTarget curJob
+      -- TODO not sure what is a good starting value...
+      -- let t = max jt (min maxSessionTarget (avgTarget maxSessionTarget jt))
+      let t = max jt maxSessionTarget
+      writeLog logger L.Info $ "setting initial session target: " <> sshow t
+      atomically $ writeTVar (_sessionTarget sessionCtx) t
+      send app $ SetTarget $ T1 t
 
-            S.mapM_ (notify logger app sessionCtx) jobStream
+      S.mapM_ (notify logger app sessionCtx) jobStream
 
-        case r of
-            Right _ -> writeLog logger L.Error "Stratum session ended unexpectedly because an internal chainweb-mining-client issue"
-            Left e@(JsonRpcError msg) -> do
-                replyError app $ Error (-32700, "Parse Error", A.String msg)
-                writeLog logger L.Warn $ "session termianted with " <> sshow e
-            Left e@(StratumError msg) -> do
-                replyError app $ Error (-32600, "Invalid Request", A.String msg)
-                    -- FIXME be more specific (cf. json rpc internal error codes)
-                writeLog logger L.Warn $ "session termianted with " <> sshow e
-            Left e@(TimeoutError msg) -> do
-                replyError app $ Error (-1, "Request Timeout", A.String msg)
-                    -- TODO not yet implemented
-                writeLog logger L.Warn $ "session termianted with " <> sshow e
-            Left e@(ConnectionClosed msg) -> do
-                replyError app $ Error (-2, "Connection Error", A.String msg)
-                    -- TODO: is the connection actually closed if we receive this?
-                    -- TODO: if the connection got closed we can't reply
-                writeLog logger L.Warn $ "session termianted with " <> sshow e
-
+    case r of
+      Right _ -> writeLog logger L.Error "Stratum session ended unexpectedly because an internal chainweb-mining-client issue"
+      Left e@(JsonRpcError msg) -> do
+        replyError app $ Error (-32700, "Parse Error", A.String msg)
+        writeLog logger L.Warn $ "session termianted with " <> sshow e
+      Left e@(StratumError msg) -> do
+        replyError app $ Error (-32600, "Invalid Request", A.String msg)
+        -- FIXME be more specific (cf. json rpc internal error codes)
+        writeLog logger L.Warn $ "session termianted with " <> sshow e
+      Left e@(TimeoutError msg) -> do
+        replyError app $ Error (-1, "Request Timeout", A.String msg)
+        -- TODO not yet implemented
+        writeLog logger L.Warn $ "session termianted with " <> sshow e
+      Left e@(ConnectionClosed msg) -> do
+        replyError app $ Error (-2, "Connection Error", A.String msg)
+        -- TODO: is the connection actually closed if we receive this?
+        -- TODO: if the connection got closed we can't reply
+        writeLog logger L.Warn $ "session termianted with " <> sshow e
   where
-
     authorize = _ctxAuthorizeFn ctx
 
     awaitSubscribe sctx = atomically $ void $ takeTMVar (_subscribed sctx)
 
     jobStream :: S.Stream (S.Of Job) IO ()
     jobStream = do
-        cur <- liftIO $ readTVarIO (_ctxCurrentJob ctx)
-        go cur
+      cur <- liftIO $ readTVarIO (_ctxCurrentJob ctx)
+      go cur
       where
         go :: Job -> S.Stream (S.Of Job) IO ()
         go old = do
-            new <- liftIO $ atomically $ do
-                cur <- readTVar (_ctxCurrentJob ctx)
-                if _jobId old == _jobId cur
-                    then retry
-                    else return cur
-            S.yield new
-            go new
+          new <- liftIO $ atomically $ do
+            cur <- readTVar (_ctxCurrentJob ctx)
+            if _jobId old == _jobId cur
+              then retry
+              else return cur
+          S.yield new
+          go new
 
     processRequests :: Logger -> SessionState -> IO AppResult
     processRequests logger sessionCtx = S.mapM_ (handleRequest logger sessionCtx) (messages sessionCtx app)
 
     handleRequest :: Logger -> SessionState -> MiningRequest -> IO ()
     handleRequest logger sessionCtx = \case
+      -- AUTHORIZE
+      (Authorize mid (user, pwd)) -> do
+        authorize user pwd >>= \case
+          Right () -> reply app $ authorizeResponse mid
+          Left err -> reply app $ authorizeError mid err
+        atomically $ writeTMVar (_authorized sessionCtx) user
 
-        -- AUTHORIZE
-        (Authorize mid (user, pwd)) -> do
-            authorize user pwd >>= \case
-                Right () -> reply app $ authorizeResponse mid
-                Left err -> reply app $ authorizeError mid err
-            atomically $ writeTMVar (_authorized sessionCtx) user
+      -- SUBSCRIBE
+      (Subscribe mid (agent, _)) -> do
+        reply app $ subscribeResponse mid (_sessionNonce1 sessionCtx) (sessionNonce2Size sessionCtx)
+        atomically $ writeTMVar (_subscribed sessionCtx) agent
 
-        -- SUBSCRIBE
-        (Subscribe mid (agent, _)) -> do
-            reply app $ subscribeResponse mid (_sessionNonce1 sessionCtx) (sessionNonce2Size sessionCtx)
-            atomically $ writeTMVar (_subscribed sessionCtx) agent
+      -- SUBMIT
+      (Submit mid (_u, _w, j, n2)) -> withLogTag logger ("job-" <> sshow j) $ \jlog -> do
+        -- Do all checks before obtaining the lock on the job
+        readTVarIO (_ctxJobs ctx) >>= \m -> case HM.lookup j m of
+          -- Inactive job: Discard stale share
+          Nothing -> do
+            writeLog jlog L.Info "Discarded stale share"
+            reply app $ SubmitResponse mid (Right False) -- FIXME is this the correct response?
 
-        -- SUBMIT
-        (Submit mid (_u, _w, j, n2)) -> withLogTag logger ("job-" <> sshow j) $ \jlog -> do
+          -- Active Job: Check share
+          Just job -> do
+            let n = composeNonce (_sessionNonce1 sessionCtx) n2
 
-            -- Do all checks before obtaining the lock on the job
-            readTVarIO (_ctxJobs ctx) >>= \m -> case HM.lookup j m of
+            -- Check if share is valid (matches share target)
+            finalWork <- injectNonce n (_jobWork job)
 
-                -- Inactive job: Discard stale share
-                Nothing -> do
-                    writeLog jlog L.Info "Discarded stale share"
-                    reply app $ SubmitResponse mid (Right False) -- FIXME is this the correct response?
+            -- we make sure that we never reject shares that solved a block!
+            -- (this add a little bit of skew to the share computation but everybody
+            -- benefits from it. The actual problem is that we don't associate
+            -- shares-works with their respective targets at notification in first place.
+            -- Also, this mostly affects solo miners that use sessions targets that
+            -- are, or a close to, the job targets.)
+            st <- max (_jobTarget job) <$> readTVarIO (_sessionTarget sessionCtx)
+            checkTarget st finalWork >>= \case
+              -- Invalid Share:
+              False -> do
+                writeLog jlog L.Warn "reject invalid nonce"
+                writeLog jlog L.Info $
+                  "invalid nonce"
+                    <> "; nonce2:"
+                    <> sshow n2
+                    <> "; nonce: "
+                    <> sshow n
+                    <> "; work: "
+                    <> sshow (_jobWork job)
+                    <> "; final work: "
+                    <> sshow finalWork
+                    <> "; target: "
+                    <> sshow (_jobTarget job)
+                    <> "; session target: "
+                    <> sshow st
+                reply app $ SubmitResponse mid (Left $ Error (31, "invalid nonce", A.Null)) -- FIXME is this correct reponse?
 
-                -- Active Job: Check share
-                Just job -> do
+              -- Valid Share:
+              True -> do
+                updateSessionTarget logger ctx app sessionCtx job
 
-                    let n = composeNonce (_sessionNonce1 sessionCtx) n2
+                -- We've got a valid share
+                --
+                -- TODO: record share in the Pool Context
+                writeLog jlog L.Info $
+                  "got valid share"
+                    <> "; nonce2:"
+                    <> sshow n2
+                    <> "; nonce: "
+                    <> sshow n
+                    <> "; work: "
+                    <> sshow finalWork
+                    <> "; target: "
+                    <> sshow (_jobTarget job)
 
-                    -- Check if share is valid (matches share target)
-                    finalWork <- injectNonce n (_jobWork job)
+                -- Check whether it is a solution for the job and
+                -- only submit if it is. We do this here in order to
+                -- fail early and avoid contention on the job result
+                -- MVar.
 
-                    -- we make sure that we never reject shares that solved a block!
-                    -- (this add a little bit of skew to the share computation but everybody
-                    -- benefits from it. The actual problem is that we don't associate
-                    -- shares-works with their respective targets at notification in first place.
-                    -- Also, this mostly affects solo miners that use sessions targets that
-                    -- are, or a close to, the job targets.)
-                    st <- max (_jobTarget job) <$> readTVarIO (_sessionTarget sessionCtx)
-                    checkTarget st finalWork >>= \case
-
-                        -- Invalid Share:
-                        False -> do
-                            writeLog jlog L.Warn "reject invalid nonce"
-                            writeLog jlog L.Info $ "invalid nonce"
-                                <> "; nonce2:" <> sshow n2
-                                <> "; nonce: " <> sshow n
-                                <> "; work: " <> sshow (_jobWork job)
-                                <> "; final work: " <> sshow finalWork
-                                <> "; target: " <> sshow (_jobTarget job)
-                                <> "; session target: " <> sshow st
-                            reply app $ SubmitResponse mid (Left $ Error (31, "invalid nonce", A.Null)) -- FIXME is this correct reponse?
-
-                        -- Valid Share:
-                        True -> do
-
-                            updateSessionTarget logger ctx app sessionCtx job
-
-                            -- We've got a valid share
-                            --
-                            -- TODO: record share in the Pool Context
-                            writeLog jlog L.Info $ "got valid share"
-                                <> "; nonce2:" <> sshow n2
-                                <> "; nonce: " <> sshow n
-                                <> "; work: " <> sshow finalWork
-                                <> "; target: " <> sshow (_jobTarget job)
-
-                            -- Check whether it is a solution for the job and
-                            -- only submit if it is. We do this here in order to
-                            -- fail early and avoid contention on the job result
-                            -- MVar.
-
-                            -- TODO we could save a few CPU cycles by reusing the hash
-                            -- from the previous check
-                            checkTarget (_jobTarget job) finalWork >>= \case
-                                False ->
-                                    reply app $ SubmitResponse mid (Right True)
-                                True -> do
-                                    writeLog jlog L.Info $ "solved block: nonce2:" <> sshow n2 <> "; nonce: " <> sshow n
-                                    -- Yeah, we've solved a block
-                                    -- Commit final result to job
-                                    void $ tryPutMVar (_jobResult job) n
-                                    reply app $ SubmitResponse mid (Right True)
+                -- TODO we could save a few CPU cycles by reusing the hash
+                -- from the previous check
+                checkTarget (_jobTarget job) finalWork >>= \case
+                  False ->
+                    reply app $ SubmitResponse mid (Right True)
+                  True -> do
+                    writeLog jlog L.Info $ "solved block: nonce2:" <> sshow n2 <> "; nonce: " <> sshow n
+                    -- Yeah, we've solved a block
+                    -- Commit final result to job
+                    void $ tryPutMVar (_jobResult job) n
+                    reply app $ SubmitResponse mid (Right True)
 
 -- -------------------------------------------------------------------------- --
 -- Stratum Server
 
-withStratumServer
-    :: Logger
-    -> Port
-    -> HostPreference
-    -> StratumDifficulty
-    -> Natural
-    -> (StratumServerCtx -> IO ())
-    -> IO ()
+withStratumServer ::
+  Logger ->
+  Port ->
+  HostPreference ->
+  StratumDifficulty ->
+  Natural ->
+  (StratumServerCtx -> IO ()) ->
+  IO ()
 withStratumServer l port host spec rate inner = withLogTag l "Stratum Server" $ \logger -> do
-    ctx <- newStratumServerCtx spec rate
-    race (server logger ctx) (inner ctx) >>= \case
-        Left _ -> writeLog logger L.Error "server exited unexpectedly"
-        Right _ -> do
-            writeLog logger L.Error "mining loop existed unexpectedly"
-            return ()
+  ctx <- newStratumServerCtx spec rate
+  race (server logger ctx) (inner ctx) >>= \case
+    Left _ -> writeLog logger L.Error "server exited unexpectedly"
+    Right _ -> do
+      writeLog logger L.Error "mining loop existed unexpectedly"
+      return ()
   where
     server logger ctx = flip finally (writeLog logger L.Info "server stopped") $ do
-        writeLog logger L.Info "Start stratum server"
-        runTCPServer (serverSettingsTCP (int port) host) (session logger ctx)
+      writeLog logger L.Info "Start stratum server"
+      runTCPServer (serverSettingsTCP (int port) host) (session logger ctx)
 
 -- -------------------------------------------------------------------------- --
 -- Example sessions
@@ -654,7 +650,7 @@ withStratumServer l port host spec rate inner = withLogTag l "Stratum Server" $ 
 -- {"id":null,"method":"mining.set_target","params":["0000000000ffffffffffffffffffffffffffffffffffffffffffffffffffffff"]}
 -- {"id":null,"method":"mining.notify","params":["6412800009e8","00000000000000001128f13f5ccf050092f4573bc51d0fcf58a3729d3d4f57f9f279bbb50c793a6446fcfd226c8a4c1d0300080000003903c8b45da2ceaf0fab587860f7868ab29ea35fc4ac16796f7dcba43749f86b0d000000e77649998da94d3be41ad1e8d4038c0d326680a7ee9fdbaccb98f98ac25f7fe512000000d88e2cf14591a36a52bf31f1176f5306a196e95dde5e18abf6af306442a402f1019fd29b54b24d0c484656cd24bc0ba6aade86888e889f9c100100000000000014e70eccbc36b15e8960c845a895817f9cc3722059a51a233eb4839ffaa5824503000000b44b93673c8f1b633403000000000000000000000000000000000000000000006e0620000000000005000000648c1c745bcf05000000000000000000",true]}
 -- {"id":null,"method":"mining.notify","params":["645a800809e8","0000000000000000f4450a405ccf0500d8c9800d1a2021618d83f88b5d1b3d21fd068d40e73676fb3b8a164d8878d51e0300010000002f4fa19a2ddbc10ffb1e6076e6ca881fbd254e109b7490ac6362c8ce371e501d08000000b8b8d54da5d10f79b9920dce6eb1884ad9cedf85640eea2ef5164fea8de08a4c09000000423e846c73a0d1f7f002bb34de2ba9b4559dea999c8a00a94caa84408cf87ceff9e53f39b6b03dbb6e67fe63d1659afc888d4842049ac7260f01000000000000dcc0c0a68efe1a30ea8d72f4a748a46b7cc1ded1d5cc5932d7709c1b9f16abd606000000f37dbe0df9aac5663403000000000000000000000000000000000000000000006d0620000000000005000000615dc5725bcf05000000000000000000",true]}
---
+
 -- $ telenet kda.ss.poolflare.com 443
 -- Trying 192.99.233.13...
 -- Connected to kda.ss.poolflare.com.
@@ -699,4 +695,3 @@ withStratumServer l port host spec rate inner = withLogTag l "Stratum Server" $ 
 -- {"method":"mining.notify","params":["5d5","0000000000000000d95e93e0b8ed050006608be04391857a960a7921209660b020ad62077e5cfadff66e70c1073e9f8c0300050000005a9d21a6bb03076830021840058fc5c96737bcd514da656bece52764c24d4aa70a00000037941034111e34be30306976d63912d1ccdfc538538d2f4c38c9d5ce19ae666a0f00000072e88ea4ffb8aa55ce46f9986a970a3d50fcf7e33d796eb1123313e5716256b55a175f9c36bdfe57c938d7b8d9b8eaab53eeb5adcc94b30c3c00000000000000fea5d9ffb9ea09369257d452cc132452cbae7039c7b812ce883ccaa8feb861c400000000db2ffb09fcbdab857b29000000000000000000000000000000000000000000003afe3000000000000500000099625c36b8ed05000000000000000000",true],"id":null}
 -- {"method":"mining.notify","params":["5d6","0000000000000000d907b2e0b8ed0500ae6e012958c9ee703c3044aafc5dfd276ead2fdedbfe328f4d65f6990ac1e8bf0300020000001d7cf6289cebdbf3b7c156796d8a2f937792ef66abd53d0b1c78d7bd00e886270b000000dd1edf2d73e77956d324d3a0ff82e1c086bfb26f890e9ad2c711be558e280e6b0d00000028092a25fd071dcbece38875460d222707cf0e05a2cf56bd1aaa9c72cc3bd0c2225e14118236c18aaac6780a1b2103b04d6f6a260952ed433c000000000000000bc09afd942ff2bed160e404647cc9f4b5df50e6dc63a1be4f72f02199b2597e0c0000003ce58106702771e66329000000000000000000000000000000000000000000003afe3000000000000500000041f14f37b8ed05000000000000000000",true],"id":null}
 -- {"method":"mining.notify","params":["5d7","0000000000000000f9940ce1b8ed0500850e84f9f0b5eaa7d95ed01a1b70302f0b04404335376cc81cc503aeaf838e02030002000000acb32cd9f5650670a8a1e38ec653e1dbc673e56ae9ca2fb462c4b52ab4c8a61a100000003e7ebc27d4af598daefb04dedee897e0aa9eacd538db87f6ebf792b472217423120000002db1e2ec9227c7da18eec7cdb384d0b76304f2913428781385cec4c0d5b538ee7ba55a342140fa689a4266949337723eb3591ffd694b3f053c00000000000000b799e1664c78958d44503032c50b256f5c2e2754d9061a7349f057a1229398a1110000004c285a3c7d86ebfd6329000000000000000000000000000000000000000000003bfe300000000000050000007014e235b8ed05000000000000000000",true],"id":null}
-

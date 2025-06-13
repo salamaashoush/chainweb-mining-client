@@ -5,55 +5,240 @@ use crate::workers::WorkerType;
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::str::FromStr;
+
+/// Stratum difficulty setting
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum StratumDifficulty {
+    /// Use the block difficulty
+    Block,
+    /// Fixed difficulty (number of leading zeros)
+    Fixed(u8),
+}
+
+impl FromStr for StratumDifficulty {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        match s {
+            "block" => Ok(StratumDifficulty::Block),
+            n => {
+                let difficulty = n
+                    .parse::<u16>()
+                    .map_err(|_| Error::config("Invalid stratum difficulty"))?;
+                if difficulty > 256 {
+                    return Err(Error::config(
+                        "Stratum difficulty must be between 0 and 256",
+                    ));
+                }
+                Ok(StratumDifficulty::Fixed(difficulty as u8))
+            }
+        }
+    }
+}
 
 /// Command-line arguments
 #[derive(Parser, Debug)]
 #[clap(
     name = "chainweb-mining-client",
-    about = "High-performance Chainweb mining client",
+    about = "Kadena Chainweb Mining Client",
     version,
     author
 )]
 pub struct Args {
-    /// Configuration file path
-    #[clap(short, long, value_name = "FILE")]
-    pub config: Option<PathBuf>,
+    /// Print program info message and exit
+    #[clap(long = "info", help = "Print program info message and exit")]
+    pub info: bool,
 
-    /// Node URL
-    #[clap(short, long, env = "CHAINWEB_NODE_URL")]
+    /// Print detailed program info message and exit
+    #[clap(
+        long = "long-info",
+        help = "Print detailed program info message and exit"
+    )]
+    pub long_info: bool,
+
+    /// Print version string and exit
+    #[clap(long = "show-version", help = "Print version string and exit")]
+    pub show_version: bool,
+
+    /// Print license of the program and exit
+    #[clap(long = "license", help = "Print license of the program and exit")]
+    pub license: bool,
+
+    /// Print the parsed configuration to standard out and exit
+    #[clap(
+        long = "print-config-as",
+        value_name = "full|minimal|diff",
+        help = "Print the parsed configuration to standard out and exit"
+    )]
+    pub print_config_as: Option<String>,
+
+    /// Print the parsed configuration to standard out and exit. This is an alias for --print-config-as=full
+    #[clap(
+        long = "print-config",
+        help = "Print the parsed configuration to standard out and exit. This is an alias for --print-config-as=full"
+    )]
+    pub print_config: bool,
+
+    /// Configuration file in YAML or JSON format
+    #[clap(
+        long = "config-file",
+        value_name = "FILE",
+        help = "Configuration file in YAML or JSON format. If more than a single config file option is present files are loaded in the order in which they appear on the command line."
+    )]
+    pub config_file: Vec<PathBuf>,
+
+    /// Hashes per second (only relevant for mining simulation, ignored by the cpu worker)
+    #[clap(
+        short = 'r',
+        long = "hash-rate",
+        help = "hashes per second (only relevant for mining simulation, ignored by the cpu worker)"
+    )]
+    pub hash_rate: Option<String>,
+
+    /// Node to which to connect
+    #[clap(
+        short = 'n',
+        long = "node",
+        value_name = "DOMAIN:PORT",
+        help = "node to which to connect"
+    )]
     pub node: Option<String>,
 
-    /// Chain ID to mine on
-    #[clap(short = 'i', long, env = "CHAINWEB_CHAIN_ID")]
-    pub chain_id: Option<u16>,
+    /// Use TLS to connect to node
+    #[clap(short = 't', long = "tls", help = "use TLS to connect to node")]
+    pub tls: bool,
 
-    /// Miner account name
-    #[clap(short, long, env = "CHAINWEB_ACCOUNT")]
-    pub account: Option<String>,
+    /// Unset flag tls
+    #[clap(long = "no-tls", help = "unset flag tls")]
+    pub no_tls: bool,
 
-    /// Miner public key
-    #[clap(short = 'k', long, env = "CHAINWEB_PUBLIC_KEY")]
+    /// Accept self-signed TLS certificates
+    #[clap(
+        short = 'x',
+        long = "insecure",
+        help = "accept self-signed TLS certificates"
+    )]
+    pub insecure: bool,
+
+    /// Unset flag insecure
+    #[clap(long = "no-insecure", help = "unset flag insecure")]
+    pub no_insecure: bool,
+
+    /// Public-key for the mining rewards account
+    #[clap(
+        short = 'k',
+        long = "public-key",
+        help = "public-key for the mining rewards account"
+    )]
     pub public_key: Option<String>,
 
-    /// Worker type
-    #[clap(short, long, default_value = "cpu")]
-    pub worker: String,
+    /// Account for the mining rewards (default: public-key prefixed with 'k:')
+    #[clap(
+        short = 'a',
+        long = "account",
+        help = "account for the mining rewards (default: public-key prefixed with 'k:')"
+    )]
+    pub account: Option<String>,
 
-    /// Number of threads (CPU worker)
-    #[clap(short, long, default_value = "0")]
-    pub threads: usize,
+    /// Number of concurrent mining threads
+    #[clap(
+        short = 'c',
+        long = "thread-count",
+        help = "number of concurrent mining threads"
+    )]
+    pub thread_count: Option<usize>,
 
-    /// Log level
-    #[clap(short, long, default_value = "info")]
-    pub log_level: String,
+    /// Generate a new key pair and exit
+    #[clap(long = "generate-key", help = "Generate a new key pair and exit")]
+    pub generate_key: bool,
 
-    /// Stratum server port
-    #[clap(long, default_value = "3333")]
-    pub stratum_port: u16,
+    /// Unset flag generate-key
+    #[clap(long = "no-generate-key", help = "unset flag generate-key")]
+    pub no_generate_key: bool,
 
-    /// External worker command
-    #[clap(long)]
-    pub external_command: Option<PathBuf>,
+    /// Level at which log messages are written to the console
+    #[clap(
+        short = 'l',
+        long = "log-level",
+        value_name = "error|warn|info|debug",
+        help = "Level at which log messages are written to the console"
+    )]
+    pub log_level: Option<String>,
+
+    /// The type of mining worker that is used
+    #[clap(
+        short = 'w',
+        long = "worker",
+        value_name = "cpu|external|simulation|stratum|constant-delay|on-demand",
+        help = "The type of mining worker that is used"
+    )]
+    pub worker: Option<String>,
+
+    /// Command that is used to call an external worker
+    #[clap(
+        long = "external-worker-cmd",
+        help = "command that is used to call an external worker. When the command is called the target value is added as last parameter to the command line."
+    )]
+    pub external_worker_cmd: Option<String>,
+
+    /// The port on which the stratum server listens
+    #[clap(
+        long = "stratum-port",
+        help = "the port on which the stratum server listens"
+    )]
+    pub stratum_port: Option<u16>,
+
+    /// Network interface that the stratum server binds to
+    #[clap(
+        long = "stratum-interface",
+        help = "network interface that the stratum server binds to"
+    )]
+    pub stratum_interface: Option<String>,
+
+    /// How the difficulty for stratum mining shares is chosen
+    #[clap(
+        long = "stratum-difficulty",
+        help = "How the difficulty for stratum mining shares is chosen. Possible values are \"block\" for using the block target of the most recent notification of new work, or number between 0 and 256 for specifying a fixed difficulty as logarithm of base 2 (number of leading zeros)."
+    )]
+    pub stratum_difficulty: Option<String>,
+
+    /// Rate (in milliseconds) at which a stratum worker thread emits jobs
+    #[clap(
+        short = 's',
+        long = "stratum-rate",
+        help = "Rate (in milliseconds) at which a stratum worker thread emits jobs."
+    )]
+    pub stratum_rate: Option<u64>,
+
+    /// Time at which a constant-delay worker emits blocks
+    #[clap(
+        long = "constant-delay-block-time",
+        help = "time at which a constant-delay worker emits blocks"
+    )]
+    pub constant_delay_block_time: Option<u64>,
+
+    /// Network interface that the on-demand mining server binds to
+    #[clap(
+        long = "on-demand-interface",
+        help = "network interface that the on-demand mining server binds to"
+    )]
+    pub on_demand_interface: Option<String>,
+
+    /// Port on which the on-demand mining server listens
+    #[clap(
+        long = "on-demand-port",
+        help = "port on which the on-demand mining server listens"
+    )]
+    pub on_demand_port: Option<u16>,
+
+    /// Default HTTP timeout in microseconds
+    #[clap(
+        long = "default-http-timeout",
+        help = "default HTTP timeout in microseconds"
+    )]
+    pub default_http_timeout: Option<u64>,
 }
 
 /// Main configuration structure
@@ -61,15 +246,74 @@ pub struct Args {
 pub struct Config {
     /// Node configuration
     pub node: NodeConfig,
-    
+
     /// Mining configuration
     pub mining: MiningConfig,
-    
+
     /// Worker configuration
     pub worker: WorkerConfig,
-    
+
     /// Logging configuration
     pub logging: LoggingConfig,
+}
+
+/// Flat configuration structure (Haskell-compatible)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FlatConfig {
+    /// Chainweb node URL
+    #[serde(rename = "node")]
+    pub node: Option<String>,
+    /// Use TLS for node connection
+    #[serde(rename = "useTls")]
+    pub use_tls: Option<bool>,
+    /// Allow insecure TLS connections
+    #[serde(rename = "insecure")]
+    pub insecure: Option<bool>,
+    /// Mining public key
+    #[serde(rename = "publicKey")]
+    pub public_key: Option<String>,
+    /// Mining account
+    #[serde(rename = "account")]
+    pub account: Option<String>,
+    /// Number of mining threads
+    #[serde(rename = "threadCount")]
+    pub thread_count: Option<usize>,
+    /// Log level (debug, info, warn, error)
+    #[serde(rename = "logLevel")]
+    pub log_level: Option<String>,
+    /// Worker type
+    #[serde(rename = "worker")]
+    pub worker: Option<String>,
+    /// External worker command
+    #[serde(rename = "externalWorkerCommand")]
+    pub external_worker_command: Option<String>,
+    /// Stratum server port
+    #[serde(rename = "stratumPort")]
+    pub stratum_port: Option<u16>,
+    /// Stratum server interface
+    #[serde(rename = "stratumInterface")]
+    pub stratum_interface: Option<String>,
+    /// Stratum difficulty setting
+    #[serde(rename = "stratumDifficulty")]
+    pub stratum_difficulty: Option<String>,
+    /// Stratum job rate
+    #[serde(rename = "stratumRate")]
+    pub stratum_rate: Option<u64>,
+    /// Simulated hash rate
+    #[serde(rename = "hashRate")]
+    pub hash_rate: Option<f64>,
+    /// Constant delay block time in seconds
+    #[serde(rename = "constantDelayBlockTime")]
+    pub constant_delay_block_time: Option<u64>,
+    /// On-demand server interface
+    #[serde(rename = "onDemandInterface")]
+    pub on_demand_interface: Option<String>,
+    /// On-demand server port
+    #[serde(rename = "onDemandPort")]
+    pub on_demand_port: Option<u16>,
+    /// Default HTTP timeout in milliseconds
+    #[serde(rename = "defaultHTTPTimeout")]
+    pub default_http_timeout: Option<u64>,
 }
 
 /// Node connection configuration
@@ -77,17 +321,21 @@ pub struct Config {
 pub struct NodeConfig {
     /// Node URL
     pub url: String,
-    
+
     /// Use TLS
     #[serde(default = "default_true")]
     pub use_tls: bool,
-    
+
+    /// Allow insecure TLS connections
+    #[serde(default)]
+    pub insecure: bool,
+
     /// Request timeout in seconds
     #[serde(default = "default_timeout")]
     pub timeout_secs: u64,
-    
-    /// Chain ID to mine on
-    pub chain_id: u16,
+
+    /// Chain ID to mine on (optional, will use all chains if not specified)
+    pub chain_id: Option<u16>,
 }
 
 /// Mining configuration
@@ -95,10 +343,10 @@ pub struct NodeConfig {
 pub struct MiningConfig {
     /// Miner account
     pub account: String,
-    
+
     /// Public key
     pub public_key: String,
-    
+
     /// Update interval in seconds
     #[serde(default = "default_update_interval")]
     pub update_interval_secs: u64,
@@ -117,12 +365,12 @@ pub enum WorkerConfig {
         #[serde(default = "default_batch_size")]
         batch_size: u64,
     },
-    
+
     /// External worker configuration
     #[serde(rename = "external")]
     External {
         /// Command to execute
-        command: PathBuf,
+        command: String,
         /// Command arguments
         #[serde(default)]
         args: Vec<String>,
@@ -133,7 +381,7 @@ pub enum WorkerConfig {
         #[serde(default = "default_external_timeout")]
         timeout_secs: u64,
     },
-    
+
     /// Stratum server configuration
     #[serde(rename = "stratum")]
     Stratum {
@@ -146,9 +394,37 @@ pub enum WorkerConfig {
         /// Max connections
         #[serde(default = "default_max_connections")]
         max_connections: usize,
-        /// Initial difficulty
-        #[serde(default = "default_initial_difficulty")]
-        initial_difficulty: f64,
+        /// Difficulty setting
+        #[serde(default = "default_stratum_difficulty")]
+        difficulty: StratumDifficulty,
+        /// Job emission rate in milliseconds
+        #[serde(default = "default_stratum_rate")]
+        rate_ms: u64,
+    },
+
+    /// Simulation worker configuration
+    #[serde(rename = "simulation")]
+    Simulation {
+        /// Target hash rate (hashes per second)
+        hash_rate: f64,
+    },
+
+    /// Constant delay worker configuration
+    #[serde(rename = "constant-delay")]
+    ConstantDelay {
+        /// Block time in seconds
+        block_time_secs: u64,
+    },
+
+    /// On-demand worker configuration
+    #[serde(rename = "on-demand")]
+    OnDemand {
+        /// Listen port
+        #[serde(default = "default_on_demand_port")]
+        port: u16,
+        /// Listen address
+        #[serde(default = "default_on_demand_host")]
+        host: String,
     },
 }
 
@@ -158,11 +434,11 @@ pub struct LoggingConfig {
     /// Log level
     #[serde(default = "default_log_level")]
     pub level: String,
-    
+
     /// Log format (plain, json)
     #[serde(default = "default_log_format")]
     pub format: String,
-    
+
     /// Log to file
     pub file: Option<PathBuf>,
 }
@@ -200,8 +476,20 @@ fn default_max_connections() -> usize {
     100
 }
 
-fn default_initial_difficulty() -> f64 {
-    1.0
+fn default_stratum_difficulty() -> StratumDifficulty {
+    StratumDifficulty::Block
+}
+
+fn default_stratum_rate() -> u64 {
+    1000
+}
+
+fn default_on_demand_port() -> u16 {
+    1917
+}
+
+fn default_on_demand_host() -> String {
+    "0.0.0.0".to_string()
 }
 
 fn default_log_level() -> String {
@@ -212,72 +500,158 @@ fn default_log_format() -> String {
     "plain".to_string()
 }
 
+/// Parse hash rate with unit prefixes (e.g., "1M", "100K", "1.5G")
+fn parse_hash_rate(s: &str) -> Result<f64> {
+    let s = s.trim();
+    if s.is_empty() {
+        return Err(Error::config("Empty hash rate"));
+    }
+
+    // Check if it ends with a unit suffix
+    let (number_part, multiplier) = if let Some(c) = s.chars().last() {
+        match c.to_ascii_uppercase() {
+            'K' => (&s[..s.len() - 1], 1_000.0),
+            'M' => (&s[..s.len() - 1], 1_000_000.0),
+            'G' => (&s[..s.len() - 1], 1_000_000_000.0),
+            'T' => (&s[..s.len() - 1], 1_000_000_000_000.0),
+            'P' => (&s[..s.len() - 1], 1_000_000_000_000_000.0),
+            _ if c.is_numeric() => (s, 1.0),
+            _ => return Err(Error::config(format!("Invalid hash rate suffix: {}", c))),
+        }
+    } else {
+        (s, 1.0)
+    };
+
+    let base_value = number_part
+        .parse::<f64>()
+        .map_err(|_| Error::config(format!("Invalid hash rate number: {}", number_part)))?;
+
+    Ok(base_value * multiplier)
+}
+
 impl Config {
     /// Load configuration from file
     pub fn from_file(path: &PathBuf) -> Result<Self> {
         let contents = std::fs::read_to_string(path)
             .map_err(|e| Error::config(format!("Failed to read config file: {}", e)))?;
 
-        let config: Self = toml::from_str(&contents)
-            .map_err(|e| Error::config(format!("Failed to parse config file: {}", e)))?;
+        // Determine format based on file extension
+        let config = if let Some(ext) = path.extension() {
+            match ext.to_str() {
+                Some("yaml") | Some("yml") => {
+                    // Try to parse as nested config first
+                    match serde_yaml::from_str::<Self>(&contents) {
+                        Ok(config) => config,
+                        Err(_) => {
+                            // Try flat config format (Haskell-compatible)
+                            let flat: FlatConfig =
+                                serde_yaml::from_str(&contents).map_err(|e| {
+                                    Error::config(format!("Failed to parse YAML config: {}", e))
+                                })?;
+                            Self::from_flat_config(flat)?
+                        }
+                    }
+                }
+                Some("json") => {
+                    // Try to parse as nested config first
+                    match serde_json::from_str::<Self>(&contents) {
+                        Ok(config) => config,
+                        Err(_) => {
+                            // Try flat config format
+                            let flat: FlatConfig =
+                                serde_json::from_str(&contents).map_err(|e| {
+                                    Error::config(format!("Failed to parse JSON config: {}", e))
+                                })?;
+                            Self::from_flat_config(flat)?
+                        }
+                    }
+                }
+                Some("toml") => toml::from_str::<Self>(&contents)
+                    .map_err(|e| Error::config(format!("Failed to parse TOML config: {}", e)))?,
+                _ => toml::from_str::<Self>(&contents)
+                    .map_err(|e| Error::config(format!("Failed to parse config file: {}", e)))?,
+            }
+        } else {
+            // Default to TOML
+            toml::from_str::<Self>(&contents)
+                .map_err(|e| Error::config(format!("Failed to parse config file: {}", e)))?
+        };
 
         config.validate()?;
         Ok(config)
     }
 
-    /// Create configuration from command-line arguments
-    pub fn from_args(args: Args) -> Result<Self> {
-        // Load from file if specified
-        if let Some(config_path) = &args.config {
-            return Self::from_file(config_path);
-        }
-
-        // Otherwise build from CLI args
-        let node_url = args.node
-            .ok_or_else(|| Error::config("Node URL is required"))?;
-        
-        let chain_id = args.chain_id
-            .ok_or_else(|| Error::config("Chain ID is required"))?;
-        
-        let account = args.account
-            .ok_or_else(|| Error::config("Account is required"))?;
-        
-        let public_key = args.public_key
-            .ok_or_else(|| Error::config("Public key is required"))?;
-
-        let use_tls = node_url.starts_with("https://") || !node_url.starts_with("http://");
+    /// Convert from flat (Haskell-style) config
+    fn from_flat_config(flat: FlatConfig) -> Result<Self> {
+        let node_url = flat.node.unwrap_or_else(|| "localhost:1848".to_string());
+        let use_tls = flat
+            .use_tls
+            .unwrap_or_else(|| !node_url.starts_with("http://"));
         let clean_url = node_url
             .trim_start_matches("https://")
             .trim_start_matches("http://")
             .to_string();
 
-        let worker_config = match args.worker.as_str() {
+        let public_key = flat
+            .public_key
+            .ok_or_else(|| Error::config("Public key is required"))?;
+
+        let account = flat.account.unwrap_or_else(|| format!("k:{}", public_key));
+
+        let worker_name = flat.worker.as_deref().unwrap_or("stratum");
+        let worker_config = match worker_name {
             "cpu" => WorkerConfig::Cpu {
-                threads: args.threads,
+                threads: flat.thread_count.unwrap_or(2),
                 batch_size: default_batch_size(),
             },
             "external" => WorkerConfig::External {
-                command: args.external_command
-                    .ok_or_else(|| Error::config("External command required for external worker"))?,
+                command: flat
+                    .external_worker_command
+                    .unwrap_or_else(|| "echo 'no external worker' && false".to_string()),
                 args: vec![],
                 env: vec![],
                 timeout_secs: default_external_timeout(),
             },
             "stratum" => WorkerConfig::Stratum {
-                port: args.stratum_port,
-                host: default_stratum_host(),
+                port: flat.stratum_port.unwrap_or(1917),
+                host: flat.stratum_interface.unwrap_or_else(|| "*".to_string()),
                 max_connections: default_max_connections(),
-                initial_difficulty: default_initial_difficulty(),
+                difficulty: flat
+                    .stratum_difficulty
+                    .as_deref()
+                    .map(StratumDifficulty::from_str)
+                    .transpose()?
+                    .unwrap_or(StratumDifficulty::Block),
+                rate_ms: flat.stratum_rate.unwrap_or(1000),
             },
-            _ => return Err(Error::config(format!("Unknown worker type: {}", args.worker))),
+            "simulation" => WorkerConfig::Simulation {
+                hash_rate: flat.hash_rate.unwrap_or(1_000_000.0),
+            },
+            "constant-delay" => WorkerConfig::ConstantDelay {
+                block_time_secs: flat.constant_delay_block_time.unwrap_or(30),
+            },
+            "on-demand" => WorkerConfig::OnDemand {
+                port: flat.on_demand_port.unwrap_or(1917),
+                host: flat.on_demand_interface.unwrap_or_else(|| "*".to_string()),
+            },
+            _ => {
+                return Err(Error::config(format!(
+                    "Unknown worker type: {}",
+                    worker_name
+                )));
+            }
         };
 
-        let config = Config {
+        Ok(Config {
             node: NodeConfig {
                 url: clean_url,
                 use_tls,
-                timeout_secs: default_timeout(),
-                chain_id,
+                insecure: flat.insecure.unwrap_or(false),
+                timeout_secs: flat
+                    .default_http_timeout
+                    .map(|us| us / 1_000_000)
+                    .unwrap_or(30),
+                chain_id: None,
             },
             mining: MiningConfig {
                 account,
@@ -286,7 +660,139 @@ impl Config {
             },
             worker: worker_config,
             logging: LoggingConfig {
-                level: args.log_level,
+                level: flat.log_level.unwrap_or_else(|| "info".to_string()),
+                format: default_log_format(),
+                file: None,
+            },
+        })
+    }
+
+    /// Create configuration from command-line arguments
+    pub fn from_args(args: Args) -> Result<Self> {
+        // Handle special flags that cause early exit
+        if args.generate_key {
+            // This should be handled in main.rs
+            return Err(Error::config("Key generation should be handled in main"));
+        }
+
+        // Load from config files if specified
+        if !args.config_file.is_empty() {
+            let mut config: Option<Config> = None;
+            for path in &args.config_file {
+                let file_config = Self::from_file(path)?;
+                config = Some(match config {
+                    None => file_config,
+                    Some(mut base) => {
+                        // Merge configurations
+                        base.merge(file_config);
+                        base
+                    }
+                });
+            }
+            if let Some(mut config) = config {
+                // Apply CLI overrides
+                config.apply_args(&args)?;
+                return Ok(config);
+            }
+        }
+
+        // Build from CLI args
+        let node_url = args
+            .node
+            .ok_or_else(|| Error::config("Node URL is required (use -n or --node)"))?;
+
+        let public_key = args
+            .public_key
+            .ok_or_else(|| Error::config("Public key is required (use -k or --public-key)"))?;
+
+        // Account defaults to k:<public-key> if not specified
+        let account = args.account.unwrap_or_else(|| format!("k:{}", public_key));
+
+        // Determine TLS usage
+        let use_tls = if args.no_tls {
+            false
+        } else if args.tls {
+            true
+        } else {
+            node_url.starts_with("https://") || !node_url.starts_with("http://")
+        };
+
+        let insecure = args.insecure && !args.no_insecure;
+
+        let clean_url = node_url
+            .trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .to_string();
+
+        // Parse worker type
+        let worker_name = args.worker.as_deref().unwrap_or("stratum");
+        let worker_config = match worker_name {
+            "cpu" => WorkerConfig::Cpu {
+                threads: args.thread_count.unwrap_or(2),
+                batch_size: default_batch_size(),
+            },
+            "external" => WorkerConfig::External {
+                command: args.external_worker_cmd.ok_or_else(|| {
+                    Error::config(
+                        "External command required for external worker (use --external-worker-cmd)",
+                    )
+                })?,
+                args: vec![],
+                env: vec![],
+                timeout_secs: default_external_timeout(),
+            },
+            "stratum" => WorkerConfig::Stratum {
+                port: args.stratum_port.unwrap_or(1917),
+                host: args.stratum_interface.unwrap_or_else(|| "*".to_string()),
+                max_connections: default_max_connections(),
+                difficulty: args
+                    .stratum_difficulty
+                    .as_deref()
+                    .map(StratumDifficulty::from_str)
+                    .transpose()?
+                    .unwrap_or(StratumDifficulty::Block),
+                rate_ms: args.stratum_rate.unwrap_or(1000),
+            },
+            "simulation" => {
+                let hash_rate = args
+                    .hash_rate
+                    .as_deref()
+                    .map(parse_hash_rate)
+                    .transpose()?
+                    .unwrap_or(1_000_000.0);
+                WorkerConfig::Simulation { hash_rate }
+            }
+            "constant-delay" => WorkerConfig::ConstantDelay {
+                block_time_secs: args.constant_delay_block_time.unwrap_or(30),
+            },
+            "on-demand" => WorkerConfig::OnDemand {
+                port: args.on_demand_port.unwrap_or(1917),
+                host: args.on_demand_interface.unwrap_or_else(|| "*".to_string()),
+            },
+            _ => {
+                return Err(Error::config(format!(
+                    "Unknown worker type: {}",
+                    worker_name
+                )));
+            }
+        };
+
+        let config = Config {
+            node: NodeConfig {
+                url: clean_url,
+                use_tls,
+                insecure,
+                timeout_secs: default_timeout(),
+                chain_id: None, // Will mine on all chains by default
+            },
+            mining: MiningConfig {
+                account,
+                public_key,
+                update_interval_secs: default_update_interval(),
+            },
+            worker: worker_config,
+            logging: LoggingConfig {
+                level: args.log_level.unwrap_or_else(|| "info".to_string()),
                 format: default_log_format(),
                 file: None,
             },
@@ -296,11 +802,71 @@ impl Config {
         Ok(config)
     }
 
+    /// Apply command-line arguments to existing config
+    fn apply_args(&mut self, args: &Args) -> Result<()> {
+        // Override node settings
+        if let Some(node) = &args.node {
+            let use_tls = if args.no_tls {
+                false
+            } else if args.tls {
+                true
+            } else {
+                node.starts_with("https://") || !node.starts_with("http://")
+            };
+            self.node.url = node
+                .trim_start_matches("https://")
+                .trim_start_matches("http://")
+                .to_string();
+            self.node.use_tls = use_tls;
+        }
+
+        if args.tls && !args.no_tls {
+            self.node.use_tls = true;
+        } else if args.no_tls {
+            self.node.use_tls = false;
+        }
+
+        if args.insecure && !args.no_insecure {
+            self.node.insecure = true;
+        } else if args.no_insecure {
+            self.node.insecure = false;
+        }
+
+        // Override mining settings
+        if let Some(account) = &args.account {
+            self.mining.account = account.clone();
+        }
+        if let Some(public_key) = &args.public_key {
+            self.mining.public_key = public_key.clone();
+        }
+
+        // Override logging
+        if let Some(log_level) = &args.log_level {
+            self.logging.level = log_level.clone();
+        }
+
+        // Override worker config based on worker type
+        if let Some(_worker_type) = &args.worker {
+            // This would require rebuilding the entire worker config
+            // For now, we'll skip this in merge scenarios
+        }
+
+        Ok(())
+    }
+
+    /// Merge another config into this one
+    fn merge(&mut self, other: Config) {
+        // For simplicity, the later config completely overrides
+        *self = other;
+    }
+
     /// Validate configuration
     pub fn validate(&self) -> Result<()> {
-        // Validate chain ID
-        if self.node.chain_id > 19 {
-            return Err(Error::config("Chain ID must be between 0 and 19"));
+        // Validate chain ID if specified
+        if let Some(chain_id) = self.node.chain_id {
+            if chain_id > 19 {
+                return Err(Error::config("Chain ID must be between 0 and 19"));
+            }
         }
 
         // Validate worker config
@@ -311,16 +877,29 @@ impl Config {
                 }
             }
             WorkerConfig::External { command, .. } => {
-                if !command.exists() {
-                    return Err(Error::config(format!(
-                        "External command not found: {:?}",
-                        command
-                    )));
+                // Command validation would happen at runtime
+                if command.is_empty() {
+                    return Err(Error::config("External command cannot be empty"));
                 }
             }
             WorkerConfig::Stratum { port, .. } => {
                 if *port == 0 {
                     return Err(Error::config("Stratum port must be greater than 0"));
+                }
+            }
+            WorkerConfig::Simulation { hash_rate } => {
+                if *hash_rate <= 0.0 {
+                    return Err(Error::config("Hash rate must be greater than 0"));
+                }
+            }
+            WorkerConfig::ConstantDelay { block_time_secs } => {
+                if *block_time_secs == 0 {
+                    return Err(Error::config("Block time must be greater than 0"));
+                }
+            }
+            WorkerConfig::OnDemand { port, .. } => {
+                if *port == 0 {
+                    return Err(Error::config("On-demand port must be greater than 0"));
                 }
             }
         }
@@ -334,6 +913,9 @@ impl Config {
             WorkerConfig::Cpu { .. } => WorkerType::Cpu,
             WorkerConfig::External { .. } => WorkerType::External,
             WorkerConfig::Stratum { .. } => WorkerType::Stratum,
+            WorkerConfig::Simulation { .. } => WorkerType::Simulation,
+            WorkerConfig::ConstantDelay { .. } => WorkerType::ConstantDelay,
+            WorkerConfig::OnDemand { .. } => WorkerType::OnDemand,
         }
     }
 }
@@ -344,8 +926,9 @@ impl Default for Config {
             node: NodeConfig {
                 url: "api.chainweb.com".to_string(),
                 use_tls: true,
+                insecure: false,
                 timeout_secs: 30,
-                chain_id: 0,
+                chain_id: Some(0),
             },
             mining: MiningConfig {
                 account: "miner".to_string(),
@@ -374,20 +957,20 @@ mod tests {
         let config = Config::default();
         assert_eq!(config.node.url, "api.chainweb.com");
         assert!(config.node.use_tls);
-        assert_eq!(config.node.chain_id, 0);
+        assert_eq!(config.node.chain_id, Some(0));
     }
 
     #[test]
     fn test_config_validation() {
         let mut config = Config::default();
-        
+
         // Valid config
         assert!(config.validate().is_ok());
 
         // Invalid chain ID
-        config.node.chain_id = 20;
+        config.node.chain_id = Some(20);
         assert!(config.validate().is_err());
-        config.node.chain_id = 0;
+        config.node.chain_id = Some(0);
 
         // Invalid batch size
         config.worker = WorkerConfig::Cpu {
@@ -400,7 +983,7 @@ mod tests {
     #[test]
     fn test_worker_type() {
         let mut config = Config::default();
-        
+
         config.worker = WorkerConfig::Cpu {
             threads: 4,
             batch_size: 1000,
@@ -411,7 +994,8 @@ mod tests {
             port: 3333,
             host: "localhost".to_string(),
             max_connections: 100,
-            initial_difficulty: 1.0,
+            difficulty: StratumDifficulty::Block,
+            rate_ms: 1000,
         };
         assert_eq!(config.worker_type(), WorkerType::Stratum);
     }

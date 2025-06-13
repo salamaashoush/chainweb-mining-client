@@ -1,0 +1,48 @@
+services:
+  # Minimal chainweb node for testing - based on Kadena devnet minimal config
+  chainweb-minimal:
+    image: salamaashoush/chainweb-node:latest
+    container_name: chainweb-minimal-test
+    restart: unless-stopped
+    environment:
+      - DISABLE_POW_VALIDATION=1
+    entrypoint:
+      - /chainweb/chainweb-node
+      - +RTS
+      - -T
+      - -H400M
+      - -A64M
+      - -RTS
+    command:
+      - --node-id=bootstrap-node
+      - --config-file=/minimal-config.yaml
+      - --log-level=info
+      - --telemetry-log-level=info
+      - --enable-mining-coordination
+      - --mining-public-key=f89ef46927f506c70b6a58fd322450a936311dc6ac91f4ec3d8ef949608dbf1f
+      - --header-stream
+      - --allowReadsInLocal
+      - --database-directory=/chainweb/db/chainweb-minimal-test.sqlite
+      - --hostname=0.0.0.0
+      - --port=1789
+      - --service-port=1848
+      - --bootstrap-reachability=0
+      - --mempool-p2p-max-session-count=0
+      - --disable-mempool-p2p
+      - --prune-chain-database=false
+      - --disable-pow
+    ports:
+      - "1848:1848"  # Service port
+      - "1789:1789"  # P2P port
+    volumes:
+      - chainweb-minimal-data:/chainweb/db
+      - ./minimal-config.yaml:/minimal-config.yaml:ro
+    stop_grace_period: 20s
+    stop_signal: SIGINT
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+
+volumes:
+  chainweb-minimal-data:

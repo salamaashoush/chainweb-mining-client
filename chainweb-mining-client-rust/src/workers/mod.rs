@@ -8,12 +8,18 @@ use crate::error::Result;
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 
+pub mod constant_delay;
 pub mod cpu;
 pub mod external;
+pub mod on_demand;
+pub mod simulation;
 pub mod stratum;
 
+pub use constant_delay::ConstantDelayWorker;
 pub use cpu::CpuWorker;
 pub use external::ExternalWorker;
+pub use on_demand::OnDemandWorker;
+pub use simulation::SimulationWorker;
 pub use stratum::StratumServer;
 
 /// Result of a mining operation
@@ -91,7 +97,7 @@ impl WorkerType {
     }
 
     /// Parse a worker type from a string
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_worker_type(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "cpu" => Some(WorkerType::Cpu),
             "external" => Some(WorkerType::External),
@@ -123,10 +129,13 @@ mod tests {
 
     #[test]
     fn test_worker_type_from_str() {
-        assert_eq!(WorkerType::from_str("cpu"), Some(WorkerType::Cpu));
-        assert_eq!(WorkerType::from_str("CPU"), Some(WorkerType::Cpu));
-        assert_eq!(WorkerType::from_str("external"), Some(WorkerType::External));
-        assert_eq!(WorkerType::from_str("invalid"), None);
+        assert_eq!(WorkerType::parse_worker_type("cpu"), Some(WorkerType::Cpu));
+        assert_eq!(WorkerType::parse_worker_type("CPU"), Some(WorkerType::Cpu));
+        assert_eq!(
+            WorkerType::parse_worker_type("external"),
+            Some(WorkerType::External)
+        );
+        assert_eq!(WorkerType::parse_worker_type("invalid"), None);
     }
 
     #[test]

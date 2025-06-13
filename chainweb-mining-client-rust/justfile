@@ -1,0 +1,225 @@
+# Chainweb Mining Client - Rust Implementation
+# Comprehensive build and check script using just
+
+# Default recipe
+default: check
+
+# Help
+help:
+    @echo "Available recipes:"
+    @echo "  check        - Run all code quality checks (default)"
+    @echo "  ci           - Run all checks including tests and release build"
+    @echo "  build        - Build the project"
+    @echo "  build-release- Build release version"
+    @echo "  test         - Run tests"
+    @echo "  fmt          - Format code with rustfmt"
+    @echo "  fmt-check    - Check if code is formatted"
+    @echo "  lint         - Run clippy linter"
+    @echo "  typos        - Check for typos"
+    @echo "  unused-deps  - Check for unused dependencies"
+    @echo "  bench        - Run benchmarks"
+    @echo "  clean        - Clean build artifacts"
+    @echo "  install      - Install the binary"
+    @echo "  dev-setup    - Install system dependencies and development tools"
+    @echo "  dev-verify   - Verify all development tools are installed"
+    @echo ""
+    @echo "Docker commands:"
+    @echo "  docker-build [TAG] [TYPE] - Build Docker image (TYPE: scratch|distroless)"
+    @echo "  docker-build-all [TAG]    - Build all Docker variants"
+    @echo "  docker-test [TAG]         - Test Docker image"
+    @echo "  docker-clean              - Clean Docker build cache"
+    @echo "  release [TAG]             - Complete release workflow"
+    @echo ""
+    @echo "Stratum testing:"
+    @echo "  test-stratum [PORT]       - Full Stratum protocol compatibility test"
+    @echo "  test-stratum-no-node      - Test Stratum without requiring a node"
+    @echo "  test-stratum-unit         - Stratum unit tests only"
+    @echo ""
+    @echo "Compatibility testing:"
+    @echo "  test-compat-all           - Run all compatibility tests vs Haskell"
+    @echo "  test-compat-stratum       - Test Stratum compatibility"
+    @echo "  test-compat-workers       - Test all worker types"
+    @echo "  test-compat-external      - Test external worker"
+
+# Install required development tools
+dev-setup:
+    @echo "🛠️  Installing development tools..."
+    chmod +x ./scripts/install-deps.sh
+    ./scripts/install-deps.sh
+
+# Verify all development tools are installed
+dev-verify:
+    @echo "🔍 Verifying development tools..."
+    chmod +x ./scripts/install-deps.sh
+    ./scripts/install-deps.sh verify
+
+# Run all code quality checks
+check: fmt-check lint typos unused-deps compiler-check
+    @echo "✅ All checks passed!"
+
+# CI checks (suitable for continuous integration)
+ci: fmt-check lint typos unused-deps compiler-check test build-release
+    @echo "✅ All CI checks passed!"
+
+# Quick development check (faster than full CI)
+dev-check: fmt-check lint
+    @echo "✅ Quick development checks passed!"
+
+# Build the project
+build:
+    @echo "🔨 Building project..."
+    cargo build
+
+# Build release version
+build-release:
+    @echo "🔨 Building release version..."
+    cargo build --release
+
+# Run tests
+test:
+    @echo "🧪 Running tests..."
+    cargo test
+
+# Format code
+fmt:
+    @echo "🎨 Formatting code..."
+    cargo fmt
+
+# Check if code is formatted
+fmt-check:
+    @echo "🎨 Checking code formatting..."
+    cargo fmt --check
+
+# Run clippy linter
+lint:
+    @echo "🔍 Running clippy..."
+    cargo clippy -- -D warnings
+
+# Check for typos
+typos:
+    @echo "📝 Checking for typos..."
+    typos
+
+# Check for unused dependencies
+unused-deps:
+    @echo "📦 Checking for unused dependencies..."
+    cargo machete
+
+# Run compiler checks
+compiler-check:
+    @echo "🔍 Running compiler checks..."
+    cargo check
+
+# Run benchmarks (if available)
+bench:
+    @echo "⚡ Running benchmarks..."
+    cargo bench --features bench
+
+# Clean build artifacts
+clean:
+    @echo "🧹 Cleaning build artifacts..."
+    cargo clean
+
+# Install the binary
+install:
+    @echo "📦 Installing binary..."
+    cargo install --path .
+
+# Fix all auto-fixable issues
+fix: fmt
+    @echo "🔧 Running clippy with auto-fix..."
+    cargo clippy --fix --allow-dirty
+    @echo "✅ Auto-fixes applied!"
+
+# Watch for changes and run checks
+watch:
+    @echo "👀 Watching for changes..."
+    cargo watch -x check -x test
+
+# Check specific file
+check-file FILE:
+    @echo "🔍 Checking {{FILE}}..."
+    cargo check --bin {{FILE}}
+
+# Run a specific test
+test-one TEST:
+    @echo "🧪 Running test: {{TEST}}"
+    cargo test {{TEST}}
+
+# Generate documentation
+docs:
+    @echo "📚 Generating documentation..."
+    cargo doc --open
+
+# Security audit
+audit:
+    @echo "🔒 Running security audit..."
+    cargo audit
+
+# Docker build recipes
+docker-build TAG="latest" DOCKERFILE_TYPE="scratch":
+    @echo "🐳 Building Docker image with tag {{TAG}} using {{DOCKERFILE_TYPE}}..."
+    chmod +x ./build-docker.sh
+    ./build-docker.sh {{TAG}} {{DOCKERFILE_TYPE}}
+
+# Build both Docker variants
+docker-build-all TAG="latest":
+    @echo "🐳 Building all Docker variants..."
+    just docker-build {{TAG}} scratch
+    just docker-build {{TAG}} distroless
+
+# Test Docker image locally
+docker-test TAG="latest":
+    @echo "🧪 Testing Docker image..."
+    docker run --rm {{IMAGE_NAME}}:{{TAG}} --help
+
+# Test Stratum protocol compatibility
+test-stratum NODE_PORT="8080":
+    @echo "🔍 Testing Stratum protocol compatibility..."
+    chmod +x ./scripts/test-stratum.sh
+    ./scripts/test-stratum.sh --node-port {{NODE_PORT}}
+
+# Test Stratum without node check (for testing without a running node)
+test-stratum-no-node:
+    @echo "🔍 Testing Stratum protocol (without node check)..."
+    chmod +x ./scripts/test-stratum.sh
+    ./scripts/test-stratum.sh --skip-node-check
+
+# Test Stratum protocol (unit tests only)
+test-stratum-unit:
+    @echo "🧪 Running Stratum unit tests..."
+    cargo test stratum_compatibility
+
+# Docker cleanup
+docker-clean:
+    @echo "🧹 Cleaning Docker build cache..."
+    docker buildx prune -f
+
+# Set default image name (can be overridden with environment variable)
+IMAGE_NAME := env_var_or_default("IMAGE_NAME", "salamaashoush/chainweb-mining-client")
+
+# Complete workflow for releases
+release TAG: check test build-release docker-build-all
+    @echo "🚀 Release {{TAG}} complete!"
+    @echo "Built binary and Docker images"
+
+# Compatibility tests
+test-compat-all: build-release
+    @echo "🔍 Running all compatibility tests..."
+    cd ../test-compatibility && ./test-all-workers.sh
+
+test-compat-stratum: build-release
+    @echo "🔍 Testing Stratum compatibility..."
+    cd ../test-compatibility && ./test-stratum-worker.sh
+
+test-compat-workers: build-release
+    @echo "🔍 Testing all worker types..."
+    cd ../test-compatibility && ./test-all-workers.sh
+
+test-compat-external: build-release
+    @echo "🔍 Testing external worker..."
+    cd ../test-compatibility && ./test-external-worker.sh
+
+test-compat-on-demand: build-release
+    @echo "🔍 Testing on-demand worker..."
+    cd ../test-compatibility && ./test-on-demand-worker.sh

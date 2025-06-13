@@ -1,0 +1,33 @@
+services:
+  # Simple chainweb node for testing - minimal working configuration
+  chainweb-simple:
+    image: salamaashoush/chainweb-node:latest
+    container_name: chainweb-test
+    restart: unless-stopped
+    environment:
+      - DISABLE_POW_VALIDATION=1
+    command:
+      - +RTS
+      - -T
+      - -H400M
+      - -A64M
+      - -RTS
+      - --log-level=info
+      - --enable-mining-coordination
+      - --mining-public-key=f89ef46927f506c70b6a58fd322450a936311dc6ac91f4ec3d8ef949608dbf1f
+      - --header-stream
+      - --database-directory=/chainweb/db
+      - --p2p-hostname=0.0.0.0
+      - --p2p-port=1789
+      - --service-port=1848
+      - --bootstrap-reachability=0
+      - --mempool-p2p-max-session-count=0
+      - --disable-mempool-p2p
+    ports:
+      - "1848:1848"  # Service port
+      - "1789:1789"  # P2P port
+    volumes:
+      - chainweb-test-data:/chainweb/db
+
+volumes:
+  chainweb-test-data:

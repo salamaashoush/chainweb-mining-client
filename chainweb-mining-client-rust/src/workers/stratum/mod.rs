@@ -4,9 +4,11 @@ mod protocol;
 mod server;
 mod session;
 
-pub use protocol::{StratumMessage, StratumMethod, StratumRequest, StratumResponse};
+pub use protocol::{
+    StratumMessage, StratumMethod, StratumNotification, StratumRequest, StratumResponse,
+};
 pub use server::{StratumServer, StratumServerConfig};
-pub use session::{StratumSession, SessionId};
+pub use session::{SessionId, StratumSession};
 
 #[cfg(test)]
 mod tests {
