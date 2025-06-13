@@ -21,11 +21,13 @@ NC='\033[0m' # No Color
 STRATUM_PORT=1917
 STRATUM_HOST="localhost"
 NODE_HOST="localhost"
-NODE_PORT=8080
+NODE_PORT=1848
 PUBLIC_KEY="f89ef46927f506c70b6a58fd322450a936311dc6ac91f4ec3d8ef949608dbf1f"
 TEST_TIMEOUT=30
 BINARY_PATH="./target/debug/chainweb-mining-client"
 EXPECT_SCRIPT="../scripts/stratum.expect"
+CHAINWEB_IMAGE="salamaashoush/chainweb-node:latest"
+CONTAINER_NAME="chainweb-stratum-test"
 
 # Function to print colored output
 print_step() {
@@ -63,6 +65,11 @@ check_dependencies() {
         missing_deps=true
     fi
     
+    if ! command -v docker >/dev/null 2>&1; then
+        print_error "docker is not installed. Install Docker to run the test"
+        missing_deps=true
+    fi
+    
     if [ "$missing_deps" = true ]; then
         exit 1
     fi
@@ -76,18 +83,60 @@ check_port() {
     fi
 }
 
-# Check if Chainweb node is available
-check_node() {
-    print_step "Checking Chainweb node at $NODE_HOST:$NODE_PORT..."
+# Start Chainweb node in Docker
+start_chainweb_node() {
+    print_step "Starting Chainweb node in Docker..."
     
-    if curl -s -f "http://$NODE_HOST:$NODE_PORT/info" >/dev/null 2>&1; then
-        print_success "Chainweb node is accessible"
-    else
-        print_error "Cannot connect to Chainweb node at $NODE_HOST:$NODE_PORT"
-        print_warning "Please ensure a Chainweb node is running on port $NODE_PORT"
-        print_warning "You can start a devnet node with: chainweb-node --dev"
-        exit 1
-    fi
+    # Stop any existing container
+    docker stop $CONTAINER_NAME 2>/dev/null || true
+    docker rm $CONTAINER_NAME 2>/dev/null || true
+    
+    # Start new container
+    docker run -d \
+        --name $CONTAINER_NAME \
+        -p $NODE_PORT:$NODE_PORT \
+        -p 1789:1789 \
+        -e DISABLE_POW_VALIDATION=1 \
+        $CHAINWEB_IMAGE \
+        +RTS -T -H400M -A64M -RTS \
+        --log-level=info \
+        --enable-mining-coordination \
+        --mining-public-key=$PUBLIC_KEY \
+        --header-stream \
+        --allowReadsInLocal \
+        --database-directory=/chainweb/db \
+        --p2p-hostname=0.0.0.0 \
+        --p2p-port=1789 \
+        --service-port=$NODE_PORT \
+        --bootstrap-reachability=0 \
+        --mempool-p2p-max-session-count=0 \
+        --disable-mempool-p2p \
+        --prune-chain-database=none \
+        --fast-forward-block-height-limit=400 > /dev/null
+    
+    # Wait for node to be ready
+    print_step "Waiting for Chainweb node to be ready..."
+    local max_attempts=60
+    local attempt=0
+    
+    while [ $attempt -lt $max_attempts ]; do
+        if curl -s -f "http://$NODE_HOST:$NODE_PORT/info" >/dev/null 2>&1; then
+            print_success "Chainweb node is ready"
+            return 0
+        fi
+        sleep 2
+        attempt=$((attempt + 1))
+    done
+    
+    print_error "Chainweb node failed to start within $((max_attempts * 2)) seconds"
+    return 1
+}
+
+# Stop Chainweb node
+stop_chainweb_node() {
+    print_step "Stopping Chainweb node..."
+    docker stop $CONTAINER_NAME 2>/dev/null || true
+    docker rm $CONTAINER_NAME 2>/dev/null || true
 }
 
 # Wait for server to start
@@ -264,6 +313,7 @@ show_logs() {
 cleanup() {
     print_step "Cleaning up..."
     stop_stratum_server
+    stop_chainweb_node
     rm -f "$PROJECT_DIR/stratum_server.log" "$PROJECT_DIR/stratum_test.expect"
 }
 
@@ -278,11 +328,19 @@ main() {
     # Check dependencies
     check_dependencies
     
-    # Check if Chainweb node is available (unless --skip-node-check is passed)
-    if [ "${SKIP_NODE_CHECK:-false}" != "true" ]; then
-        check_node
+    # Start Chainweb node (unless --external-node is passed)
+    if [ "${USE_EXTERNAL_NODE:-false}" != "true" ]; then
+        if ! start_chainweb_node; then
+            exit 1
+        fi
     else
-        print_warning "Skipping node check (--skip-node-check)"
+        print_warning "Using external node at $NODE_HOST:$NODE_PORT"
+        print_step "Checking external Chainweb node..."
+        if ! curl -s -f "http://$NODE_HOST:$NODE_PORT/info" >/dev/null 2>&1; then
+            print_error "Cannot connect to external Chainweb node at $NODE_HOST:$NODE_PORT"
+            exit 1
+        fi
+        print_success "External Chainweb node is accessible"
     fi
     
     # Check if port is available
@@ -358,8 +416,8 @@ main() {
 parse_args() {
     while [[ $# -gt 0 ]]; do
         case $1 in
-            --skip-node-check)
-                SKIP_NODE_CHECK=true
+            --external-node)
+                USE_EXTERNAL_NODE=true
                 shift
                 ;;
             --node-port)
@@ -378,9 +436,9 @@ parse_args() {
                 echo "Usage: $0 [OPTIONS]"
                 echo ""
                 echo "Options:"
-                echo "  --skip-node-check     Skip checking if Chainweb node is available"
+                echo "  --external-node       Use external Chainweb node instead of starting Docker container"
                 echo "  --node-host HOST      Chainweb node host (default: localhost)"
-                echo "  --node-port PORT      Chainweb node port (default: 8080)"
+                echo "  --node-port PORT      Chainweb node port (default: 1848)"
                 echo "  --stratum-port PORT   Stratum server port (default: 1917)"
                 echo "  --help, -h            Show this help message"
                 exit 0

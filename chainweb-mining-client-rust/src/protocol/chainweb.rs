@@ -237,11 +237,7 @@ impl ChainwebClient {
         debug!("Subscribing to updates at: {}", url);
 
         // Encode chain ID as 4-byte little-endian binary
-        let mut body = vec![0u8; 4];
-        body[0] = (self.config.chain_id.value() & 0xff) as u8;
-        body[1] = ((self.config.chain_id.value() >> 8) & 0xff) as u8;
-        body[2] = ((self.config.chain_id.value() >> 16) & 0xff) as u8;
-        body[3] = ((self.config.chain_id.value() >> 24) & 0xff) as u8;
+        let body = (self.config.chain_id.value() as u32).to_le_bytes().to_vec();
 
         let response = self
             .client
