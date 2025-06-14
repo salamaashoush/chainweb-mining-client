@@ -119,19 +119,20 @@ impl ChainwebClient {
             .get(&url)
             .send()
             .await
-            .map_err(|e| Error::network(format!("Failed to get node info: {}", e)))?;
+            .map_err(|e| Error::network_connection_failed(&url, Box::new(e)))?;
 
         if !response.status().is_success() {
-            return Err(Error::protocol(format!(
-                "Node info request failed: {}",
-                response.status()
-            )));
+            return Err(Error::network_http_error(
+                &url,
+                response.status().as_u16(),
+                format!("Node info request failed: {}", response.status())
+            ));
         }
 
         let info = response
             .json::<NodeInfo>()
             .await
-            .map_err(|e| Error::network(format!("Failed to parse node info: {}", e)))?;
+            .map_err(|e| Error::protocol_invalid_format(format!("Failed to parse node info JSON: {}", e)))?;
 
         info!("Connected to Chainweb node version: {}", info.node_version);
 
@@ -165,31 +166,34 @@ impl ChainwebClient {
             .json(&request)
             .send()
             .await
-            .map_err(|e| Error::network(format!("Failed to get work: {}", e)))?;
+            .map_err(|e| Error::network_connection_failed(&url, Box::new(e)))?;
 
         if !response.status().is_success() {
             let status = response.status();
             if status == 404 {
-                return Err(Error::protocol(
-                    "Mining work endpoint not found (404). The node may not have mining enabled. \
-                     For development nodes, ensure DISABLE_POW_VALIDATION=1 is set."
-                        .to_string(),
+                return Err(Error::protocol_endpoint_unavailable(
+                    format!("{}/mining/work", self.base_url())
                 ));
             }
-            return Err(Error::protocol(format!("Work request failed: {}", status)));
+            return Err(Error::network_http_error(
+                &url,
+                status.as_u16(),
+                format!("Work request failed: {}", status)
+            ));
         }
 
         // The response is raw binary data: 4 bytes ChainId + 32 bytes Target + 286 bytes Work
         let response_bytes = response
             .bytes()
             .await
-            .map_err(|e| Error::network(format!("Failed to read work response: {}", e)))?;
+            .map_err(|e| Error::protocol_invalid_format(format!("Failed to read work response: {}", e)))?;
 
         if response_bytes.len() != 322 {
-            return Err(Error::protocol(format!(
-                "Invalid work response size: expected 322 bytes, got {}",
+            return Err(Error::validation_size_error(
+                "work_response",
+                322,
                 response_bytes.len()
-            )));
+            ));
         }
 
         // Parse the binary response
@@ -199,11 +203,10 @@ impl ChainwebClient {
 
         // Verify the chain ID matches what we expect
         if chain_id != self.config.chain_id.value() as u32 {
-            debug!(
-                "Received work for chain {}, expected {}",
-                chain_id,
-                self.config.chain_id.value()
-            );
+            return Err(Error::protocol_invalid_chain_id(
+                self.config.chain_id.value() as u32,
+                chain_id
+            ));
         }
 
         // Next 32 bytes: Target (little-endian, 256-bit)
@@ -245,15 +248,16 @@ impl ChainwebClient {
             .body(work.as_bytes().to_vec())
             .send()
             .await
-            .map_err(|e| Error::network(format!("Failed to submit solution: {}", e)))?;
+            .map_err(|e| Error::network_connection_failed(&url, Box::new(e)))?;
 
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(Error::protocol(format!(
-                "Solution submission failed: {} - {}",
-                status, body
-            )));
+            return Err(Error::network_http_error(
+                &url,
+                status.as_u16(),
+                format!("Solution submission failed: {} - {}", status, body)
+            ));
         }
 
         info!("Solution accepted by node!");
@@ -281,18 +285,20 @@ impl ChainwebClient {
             .body(body)
             .send()
             .await
-            .map_err(|e| Error::network(format!("Failed to subscribe: {}", e)))?;
+            .map_err(|e| Error::network_connection_failed(&url, Box::new(e)))?;
 
         if !response.status().is_success() {
             let status = response.status();
             if status == 404 {
-                return Err(Error::protocol("Mining updates endpoint not found (404). The node may not have mining enabled. \
-                     For development nodes, ensure DISABLE_POW_VALIDATION=1 is set.".to_string()));
+                return Err(Error::protocol_endpoint_unavailable(
+                    format!("{}/mining/updates", self.base_url())
+                ));
             }
-            return Err(Error::protocol(format!(
-                "Subscribe request failed: {}",
-                status
-            )));
+            return Err(Error::network_http_error(
+                &url,
+                status.as_u16(),
+                format!("Subscribe request failed: {}", status)
+            ));
         }
 
         let stream = response
@@ -305,12 +311,13 @@ impl ChainwebClient {
                 }
                 Err(e) => {
                     error!("SSE error: {}", e);
-                    Err(Error::network(format!("SSE error: {}", e)))
+                    Err(Error::protocol_invalid_format(format!("SSE stream error: {}", e)))
                 }
             });
 
         Ok(stream)
     }
+
 }
 
 #[cfg(test)]

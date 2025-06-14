@@ -28,10 +28,12 @@ impl FromStr for StratumDifficulty {
             n => {
                 let difficulty = n
                     .parse::<u16>()
-                    .map_err(|_| Error::config("Invalid stratum difficulty"))?;
+                    .map_err(|_| Error::config_invalid_value("stratum_difficulty", n, "number or 'block'"))?;
                 if difficulty > 256 {
-                    return Err(Error::config(
-                        "Stratum difficulty must be between 0 and 256",
+                    return Err(Error::config_invalid_value(
+                        "stratum_difficulty",
+                        difficulty.to_string(),
+                        "value between 0 and 256"
                     ));
                 }
                 Ok(StratumDifficulty::Fixed(difficulty as u8))

@@ -80,7 +80,7 @@ impl Worker for ExternalWorker {
         result_tx: mpsc::Sender<MiningResult>,
     ) -> Result<()> {
         if self.is_mining.load(Ordering::Relaxed) {
-            return Err(Error::worker("Already mining"));
+            return Err(Error::worker_mining_failed("Worker is already mining"));
         }
 
         self.is_mining.store(true, Ordering::Relaxed);
@@ -109,24 +109,44 @@ impl Worker for ExternalWorker {
         // Start the external process
         let mut child = cmd
             .spawn()
-            .map_err(|e| Error::external_process(format!("Failed to start: {}", e)))?;
+            .map_err(|e| {
+                Error::worker_initialization_failed(
+                    "External",
+                    format!("Failed to start command {}: {}", self.config.command.display(), e)
+                )
+            })?;
 
         // Get process streams
         let mut stdin = child
             .stdin
             .take()
-            .ok_or_else(|| Error::external_process("Failed to get stdin"))?;
+            .ok_or_else(|| {
+                Error::worker_initialization_failed(
+                    "External",
+                    "Failed to get stdin handle from external process"
+                )
+            })?;
 
         let stdout = child
             .stdout
             .take()
-            .ok_or_else(|| Error::external_process("Failed to get stdout"))?;
+            .ok_or_else(|| {
+                Error::worker_initialization_failed(
+                    "External",
+                    "Failed to get stdout handle from external process"
+                )
+            })?;
 
         // Write work to stdin
         stdin
             .write_all(work.as_bytes())
             .await
-            .map_err(|e| Error::external_process(format!("Failed to write work: {}", e)))?;
+            .map_err(|e| {
+                Error::communication_channel_send_failed(
+                    "external_process_stdin",
+                    format!("Failed to write work data: {}", e)
+                )
+            })?;
         stdin.flush().await?;
         drop(stdin); // Close stdin
 

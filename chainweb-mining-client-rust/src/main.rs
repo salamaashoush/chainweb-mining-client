@@ -177,6 +177,9 @@ async fn main() -> Result<()> {
 
     // Set the node version for future API calls
     client.set_node_version(node_info.node_version.clone());
+    
+    // Create Arc for shared ownership
+    let client_arc = Arc::new(client);
 
     // Create worker based on configuration
     let worker: Arc<dyn Worker> = match &config.worker {
@@ -270,10 +273,16 @@ async fn main() -> Result<()> {
     let (result_tx, mut result_rx) = mpsc::channel(10);
 
     // Subscribe to work updates
-    let mut update_stream = client.subscribe_updates().await?;
+    let mut update_stream = client_arc.subscribe_updates().await?;
+    
+    // Stream reconnection state
+    let mut stream_retry_count = 0u32;
+    let mut stream_retry_delay = Duration::from_millis(100);
+    const MAX_STREAM_RETRIES: u32 = 10;
+    const MAX_STREAM_DELAY: Duration = Duration::from_secs(30);
 
     // Get initial work
-    let (mut current_work, mut current_target) = client.get_work().await?;
+    let (mut current_work, mut current_target) = client_arc.get_work().await?;
     info!("Received initial work");
 
     // Start mining
@@ -289,7 +298,7 @@ async fn main() -> Result<()> {
                 info!("Found solution! Nonce: {}", result.nonce);
 
                 // Submit solution
-                match client.submit_solution(&result.work).await {
+                match client_arc.submit_solution(&result.work).await {
                     Ok(()) => {
                         info!("Solution accepted!");
                     }
@@ -299,7 +308,7 @@ async fn main() -> Result<()> {
                 }
 
                 // Get new work and continue mining
-                match client.get_work().await {
+                match client_arc.get_work().await {
                     Ok((work, target)) => {
                         current_work = work;
                         current_target = target;
@@ -318,7 +327,7 @@ async fn main() -> Result<()> {
                         info!("Received work update");
 
                         // Get new work first
-                        match client.get_work().await {
+                        match client_arc.get_work().await {
                             Ok((new_work, new_target)) => {
                                 // Use preemptor to decide if and how to preempt
                                 let decision = preemptor.should_preempt(&new_work, &current_work);
@@ -330,7 +339,7 @@ async fn main() -> Result<()> {
                                         // Execute preemption using the sophisticated logic
                                         let worker_clone = worker.clone();
                                         let result_tx_clone = result_tx.clone();
-                                        let client_clone = client.clone();
+                                        let client_clone = Arc::clone(&client_arc);
 
                                         if let Err(e) = preemptor.execute_preemption(
                                             action,
@@ -362,15 +371,38 @@ async fn main() -> Result<()> {
                     }
                     Err(e) => {
                         warn!("Update stream error: {}", e);
-                        // Reconnect to update stream
-                        match client.subscribe_updates().await {
-                            Ok(stream) => {
-                                update_stream = stream;
-                                info!("Reconnected to update stream");
+                        
+                        // Attempt to reconnect with exponential backoff
+                        if stream_retry_count < MAX_STREAM_RETRIES {
+                            stream_retry_count += 1;
+                            info!("Attempting to reconnect stream (attempt {}/{})", stream_retry_count, MAX_STREAM_RETRIES);
+                            
+                            // Wait before reconnecting
+                            tokio::time::sleep(stream_retry_delay).await;
+                            
+                            // Try to reconnect
+                            match client_arc.subscribe_updates().await {
+                                Ok(new_stream) => {
+                                    update_stream = new_stream;
+                                    info!("Successfully reconnected to update stream");
+                                    
+                                    // Reset retry state on successful reconnection
+                                    stream_retry_count = 0;
+                                    stream_retry_delay = Duration::from_millis(100);
+                                }
+                                Err(reconnect_error) => {
+                                    error!("Failed to reconnect to updates: {}", reconnect_error);
+                                    
+                                    // Increase delay for next attempt (exponential backoff)
+                                    stream_retry_delay = std::cmp::min(
+                                        Duration::from_millis((stream_retry_delay.as_millis() as f64 * 2.0) as u64),
+                                        MAX_STREAM_DELAY
+                                    );
+                                }
                             }
-                            Err(e) => {
-                                error!("Failed to reconnect to updates: {}", e);
-                            }
+                        } else {
+                            error!("Max stream reconnection attempts exceeded, giving up on automatic updates");
+                            // Continue mining with current work but without updates
                         }
                     }
                 }

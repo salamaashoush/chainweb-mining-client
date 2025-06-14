@@ -353,6 +353,11 @@ impl Error {
         Self::Protocol(ProtocolError::WorkValidationFailed { reason: reason.into() })
     }
     
+    /// Create an endpoint unavailable protocol error
+    pub fn protocol_endpoint_unavailable(endpoint: impl Into<String>) -> Self {
+        Self::Protocol(ProtocolError::EndpointUnavailable { endpoint: endpoint.into() })
+    }
+    
     /// Create a generic protocol error
     pub fn protocol(msg: impl Into<String>) -> Self {
         Self::Protocol(ProtocolError::InvalidFormat { message: msg.into() })

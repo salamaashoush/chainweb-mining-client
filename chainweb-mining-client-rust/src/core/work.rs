@@ -22,11 +22,7 @@ impl Work {
     /// Create Work from a byte slice
     pub fn from_slice(slice: &[u8]) -> Result<Self> {
         if slice.len() != WORK_SIZE {
-            return Err(Error::invalid_work(format!(
-                "Expected {} bytes, got {}",
-                WORK_SIZE,
-                slice.len()
-            )));
+            return Err(Error::validation_invalid_work_header(WORK_SIZE, slice.len()));
         }
 
         let mut bytes = [0u8; WORK_SIZE];
@@ -86,8 +82,9 @@ impl Work {
 
     /// Create Work from a hex string
     pub fn from_hex(hex: &str) -> Result<Self> {
-        let bytes =
-            hex::decode(hex).map_err(|e| Error::invalid_work(format!("Invalid hex: {}", e)))?;
+        let bytes = hex::decode(hex).map_err(|e| {
+            Error::validation_invalid_target(hex, format!("Invalid hex encoding: {}", e))
+        })?;
         Self::from_slice(&bytes)
     }
 }
