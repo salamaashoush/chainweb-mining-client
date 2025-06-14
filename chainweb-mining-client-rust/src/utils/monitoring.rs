@@ -275,7 +275,7 @@ impl MonitoringSystem {
         
         // Check for alerts
         let config = self.config.read();
-        if config.enabled_alerts.get("hash_rate").unwrap_or(&true) {
+        if *config.enabled_alerts.get("hash_rate").unwrap_or(&true) {
             if hash_rate < config.min_hash_rate {
                 self.create_alert(
                     AlertSeverity::Warning,
@@ -303,7 +303,7 @@ impl MonitoringSystem {
         
         // Check for alerts
         let config = self.config.read();
-        if config.enabled_alerts.get("response_time").unwrap_or(&true) {
+        if *config.enabled_alerts.get("response_time").unwrap_or(&true) {
             if response_time_ms > config.max_response_time_ms {
                 self.create_alert(
                     AlertSeverity::Critical,
@@ -347,7 +347,7 @@ impl MonitoringSystem {
         
         // Check acceptance rate alerts
         let config = self.config.read();
-        if config.enabled_alerts.get("acceptance_rate").unwrap_or(&true) {
+        if *config.enabled_alerts.get("acceptance_rate").unwrap_or(&true) {
             if total_shares >= 10 && metrics.acceptance_rate < config.min_acceptance_rate {
                 self.create_alert(
                     AlertSeverity::Warning,
@@ -379,7 +379,7 @@ impl MonitoringSystem {
         
         // Check memory usage alerts
         let config = self.config.read();
-        if config.enabled_alerts.get("memory_usage").unwrap_or(&true) {
+        if *config.enabled_alerts.get("memory_usage").unwrap_or(&true) {
             if memory_bytes > config.max_memory_usage_bytes {
                 self.create_alert(
                     AlertSeverity::Critical,
@@ -405,7 +405,7 @@ impl MonitoringSystem {
         
         // Check CPU usage alerts
         let config = self.config.read();
-        if config.enabled_alerts.get("cpu_usage").unwrap_or(&true) {
+        if *config.enabled_alerts.get("cpu_usage").unwrap_or(&true) {
             if cpu_percent > config.max_cpu_utilization {
                 self.create_alert(
                     AlertSeverity::Warning,
@@ -619,7 +619,6 @@ pub fn init_monitoring_with_pool(http_pool: Arc<HttpClientPool>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::thread;
     use std::time::Duration;
 
     #[test]

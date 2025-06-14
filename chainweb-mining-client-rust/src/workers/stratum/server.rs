@@ -3,7 +3,7 @@
 use crate::config::StratumDifficulty;
 use crate::core::{Nonce, Target, Work};
 use crate::error::{Error, Result};
-use crate::utils::monitoring::{global_monitoring, MonitoringSystem};
+use crate::utils::monitoring::global_monitoring;
 use crate::workers::{MiningResult, Worker};
 use async_trait::async_trait;
 use dashmap::DashMap;
@@ -11,7 +11,7 @@ use serde_json::Value;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{RwLock, broadcast, mpsc};

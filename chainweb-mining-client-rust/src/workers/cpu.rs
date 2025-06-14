@@ -2,7 +2,7 @@
 
 use crate::core::{Nonce, Target, Work, VectorizedMiner};
 use crate::error::Result;
-use crate::utils::monitoring::{global_monitoring, MonitoringSystem};
+use crate::utils::monitoring::global_monitoring;
 use crate::workers::{MiningResult, Worker};
 use async_trait::async_trait;
 use blake2::Digest;

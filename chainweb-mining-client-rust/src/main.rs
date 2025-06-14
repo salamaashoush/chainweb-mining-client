@@ -134,7 +134,7 @@ async fn main() -> Result<()> {
     utils::init_logging(&config.logging.level, &config.logging.format);
 
     // Initialize monitoring system
-    let monitoring = global_monitoring();
+    let _monitoring = global_monitoring();
     info!("📊 Monitoring system initialized");
 
     info!(
