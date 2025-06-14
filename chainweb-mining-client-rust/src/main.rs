@@ -345,9 +345,8 @@ async fn main() -> Result<()> {
                                         ).await {
                                             error!("Failed to execute preemption: {}", e);
                                         } else {
-                                            // Update current work/target if preemption succeeded
+                                            // Update current work if preemption succeeded
                                             current_work = new_work;
-                                            current_target = new_target;
                                         }
                                     }
                                     PreemptionDecision::Skip(reason) => {

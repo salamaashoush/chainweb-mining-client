@@ -348,7 +348,7 @@ impl NodeConfig {
     /// Merge another node config into this one
     fn merge(&mut self, other: NodeConfig) {
         // Determine if we should update TLS before consuming the URL
-        let should_update_tls = other.use_tls != !other.url.starts_with("http://");
+        let should_update_tls = other.use_tls == other.url.starts_with("http://");
 
         // URL: only override if it's not the default localhost value
         if other.url != "localhost:1848" {

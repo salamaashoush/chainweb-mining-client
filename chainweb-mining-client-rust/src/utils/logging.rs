@@ -91,19 +91,19 @@ impl LogContext {
         );
 
         if let Some(ref worker_type) = self.worker_type {
-            span.record("worker_type", &field::display(worker_type));
+            span.record("worker_type", field::display(worker_type));
         }
         if let Some(chain_id) = self.chain_id {
-            span.record("chain_id", &field::display(chain_id));
+            span.record("chain_id", field::display(chain_id));
         }
         if let Some(ref target) = self.target {
-            span.record("target", &field::display(target));
+            span.record("target", field::display(target));
         }
         if let Some(ref account) = self.account {
-            span.record("account", &field::display(account));
+            span.record("account", field::display(account));
         }
         if let Some(ref session_id) = self.session_id {
-            span.record("session_id", &field::display(session_id));
+            span.record("session_id", field::display(session_id));
         }
 
         span

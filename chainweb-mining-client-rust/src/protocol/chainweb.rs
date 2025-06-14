@@ -170,10 +170,11 @@ impl ChainwebClient {
         if !response.status().is_success() {
             let status = response.status();
             if status == 404 {
-                return Err(Error::protocol(format!(
+                return Err(Error::protocol(
                     "Mining work endpoint not found (404). The node may not have mining enabled. \
                      For development nodes, ensure DISABLE_POW_VALIDATION=1 is set."
-                )));
+                        .to_string(),
+                ));
             }
             return Err(Error::protocol(format!("Work request failed: {}", status)));
         }
@@ -283,10 +284,8 @@ impl ChainwebClient {
         if !response.status().is_success() {
             let status = response.status();
             if status == 404 {
-                return Err(Error::protocol(format!(
-                    "Mining updates endpoint not found (404). The node may not have mining enabled. \
-                     For development nodes, ensure DISABLE_POW_VALIDATION=1 is set."
-                )));
+                return Err(Error::protocol("Mining updates endpoint not found (404). The node may not have mining enabled. \
+                     For development nodes, ensure DISABLE_POW_VALIDATION=1 is set.".to_string()));
             }
             return Err(Error::protocol(format!(
                 "Subscribe request failed: {}",

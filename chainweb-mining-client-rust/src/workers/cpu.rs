@@ -5,8 +5,10 @@ use crate::error::Result;
 use crate::utils::monitoring::global_monitoring;
 use crate::workers::{MiningResult, Worker};
 use async_trait::async_trait;
+#[cfg(test)]
 use blake2::Digest;
 use parking_lot::Mutex;
+#[cfg(test)]
 use rayon::prelude::*;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -47,8 +49,7 @@ impl NonceBufferPool {
     fn new(batch_size: u64, initial_capacity: usize) -> Self {
         let mut buffers = Vec::with_capacity(initial_capacity);
         for _ in 0..initial_capacity {
-            let mut buffer = Vec::with_capacity(batch_size as usize);
-            buffer.resize(batch_size as usize, 0);
+            let buffer = vec![0; batch_size as usize];
             buffers.push(buffer);
         }
 
@@ -61,8 +62,7 @@ impl NonceBufferPool {
     fn get_buffer(&self) -> Vec<u64> {
         let mut buffers = self.buffers.lock();
         buffers.pop().unwrap_or_else(|| {
-            let mut buffer = Vec::with_capacity(self.batch_size as usize);
-            buffer.resize(self.batch_size as usize, 0);
+            let buffer = vec![0; self.batch_size as usize];
             buffer
         })
     }
@@ -122,6 +122,8 @@ impl CpuWorker {
     }
 
     /// Mine a single batch of nonces with optimized memory usage
+    /// This is an alternative implementation kept for testing and benchmarking
+    #[cfg(test)]
     fn mine_batch_optimized(
         work_bytes: &[u8; 286], // Work as bytes to avoid cloning
         target: &Target,
@@ -148,7 +150,7 @@ impl CpuWorker {
 
             // Hash directly from bytes using Blake2s-256
             let mut hasher = blake2::Blake2s256::new();
-            hasher.update(&work_copy);
+            hasher.update(work_copy);
             let hash: [u8; 32] = hasher.finalize().into();
             if target.meets_target(&hash) {
                 Some((nonce, hash))
@@ -169,7 +171,7 @@ impl CpuWorker {
     ) -> Option<(Nonce, [u8; 32])> {
         // Use adaptive batch sizing for optimal SIMD performance
         let simd_batch_size = (batch_size as usize).min(vectorized_miner.work_buffer.len());
-        let num_batches = (batch_size as usize + simd_batch_size - 1) / simd_batch_size;
+        let num_batches = (batch_size as usize).div_ceil(simd_batch_size);
 
         for batch_idx in 0..num_batches {
             if !is_mining.load(Ordering::Relaxed) {

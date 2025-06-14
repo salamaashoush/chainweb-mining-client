@@ -15,6 +15,12 @@ pub struct OptimizedHasher {
     batch_size_hint: usize,
 }
 
+impl Default for OptimizedHasher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl OptimizedHasher {
     /// Create a new optimized hasher with optimal batch sizing
     pub fn new() -> Self {

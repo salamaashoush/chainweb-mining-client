@@ -34,9 +34,9 @@ impl TargetWords {
         let mut words = [0u64; TARGET_WORDS];
 
         // Convert big-endian bytes to little-endian words
-        for i in 0..TARGET_WORDS {
+        for (i, word) in words.iter_mut().enumerate() {
             let start = (TARGET_WORDS - 1 - i) * 8;
-            words[i] = u64::from_be_bytes([
+            *word = u64::from_be_bytes([
                 bytes[start],
                 bytes[start + 1],
                 bytes[start + 2],
@@ -118,10 +118,12 @@ impl TargetWords {
         let mut result = [0u64; TARGET_WORDS];
         let mut carry = 0u64;
 
-        for i in 0..TARGET_WORDS {
-            let (sum1, overflow1) = self.words[i].overflowing_add(other.words[i]);
+        for ((result_word, &self_word), &other_word) in
+            result.iter_mut().zip(&self.words).zip(&other.words)
+        {
+            let (sum1, overflow1) = self_word.overflowing_add(other_word);
             let (sum2, overflow2) = sum1.overflowing_add(carry);
-            result[i] = sum2;
+            *result_word = sum2;
             carry = (overflow1 as u64) + (overflow2 as u64);
         }
 
@@ -137,10 +139,12 @@ impl TargetWords {
         let mut result = [0u64; TARGET_WORDS];
         let mut borrow = 0u64;
 
-        for i in 0..TARGET_WORDS {
-            let (diff1, borrow1) = self.words[i].overflowing_sub(other.words[i]);
+        for ((result_word, &self_word), &other_word) in
+            result.iter_mut().zip(&self.words).zip(&other.words)
+        {
+            let (diff1, borrow1) = self_word.overflowing_sub(other_word);
             let (diff2, borrow2) = diff1.overflowing_sub(borrow);
-            result[i] = diff2;
+            *result_word = diff2;
             borrow = (borrow1 as u64) + (borrow2 as u64);
         }
 
@@ -156,9 +160,9 @@ impl TargetWords {
         let mut result = [0u64; TARGET_WORDS];
         let mut carry = 0u64;
 
-        for i in 0..TARGET_WORDS {
-            let product = self.words[i] as u128 * scalar as u128 + carry as u128;
-            result[i] = product as u64;
+        for (result_word, &self_word) in result.iter_mut().zip(&self.words) {
+            let product = self_word as u128 * scalar as u128 + carry as u128;
+            *result_word = product as u64;
             carry = (product >> 64) as u64;
         }
 
@@ -201,16 +205,15 @@ impl TargetWords {
 
         if bit_shift == 0 {
             // Simple word shift
-            for i in word_shift..TARGET_WORDS {
-                result[i] = self.words[i - word_shift];
-            }
+            result[word_shift..TARGET_WORDS]
+                .copy_from_slice(&self.words[..(TARGET_WORDS - word_shift)]);
         } else {
             // Shift with carry
-            for i in word_shift..TARGET_WORDS {
+            for (i, dst) in result.iter_mut().enumerate().skip(word_shift) {
                 let src_idx = i - word_shift;
-                result[i] = self.words[src_idx] << bit_shift;
+                *dst = self.words[src_idx] << bit_shift;
                 if src_idx > 0 {
-                    result[i] |= self.words[src_idx - 1] >> (64 - bit_shift);
+                    *dst |= self.words[src_idx - 1] >> (64 - bit_shift);
                 }
             }
         }
@@ -231,16 +234,19 @@ impl TargetWords {
 
         if bit_shift == 0 {
             // Simple word shift
-            for i in 0..(TARGET_WORDS - word_shift) {
-                result[i] = self.words[i + word_shift];
-            }
+            result[..(TARGET_WORDS - word_shift)]
+                .copy_from_slice(&self.words[word_shift..TARGET_WORDS]);
         } else {
             // Shift with carry
-            for i in 0..(TARGET_WORDS - word_shift) {
+            for (i, dst) in result
+                .iter_mut()
+                .enumerate()
+                .take(TARGET_WORDS - word_shift)
+            {
                 let src_idx = i + word_shift;
-                result[i] = self.words[src_idx] >> bit_shift;
+                *dst = self.words[src_idx] >> bit_shift;
                 if src_idx + 1 < TARGET_WORDS {
-                    result[i] |= self.words[src_idx + 1] << (64 - bit_shift);
+                    *dst |= self.words[src_idx + 1] << (64 - bit_shift);
                 }
             }
         }

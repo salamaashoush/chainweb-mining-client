@@ -13,9 +13,10 @@ use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
 /// Strategy for handling work preemption
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PreemptionStrategy {
     /// Immediately stop and switch to new work
+    #[default]
     Immediate,
     /// Allow current batch to complete, then switch
     BatchComplete,
@@ -23,12 +24,6 @@ pub enum PreemptionStrategy {
     Delayed(Duration),
     /// Only preempt if the new work is significantly different
     Conditional,
-}
-
-impl Default for PreemptionStrategy {
-    fn default() -> Self {
-        PreemptionStrategy::Immediate
-    }
 }
 
 /// Configuration for work preemption behavior

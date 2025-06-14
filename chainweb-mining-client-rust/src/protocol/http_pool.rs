@@ -87,7 +87,14 @@ pub struct ConnectionMetrics {
     pub last_cache_clear: AtomicU64,
 }
 
+impl Default for ConnectionMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ConnectionMetrics {
+    /// Create new connection metrics instance
     pub fn new() -> Self {
         Self {
             clients_created: AtomicU64::new(0),
@@ -98,23 +105,28 @@ impl ConnectionMetrics {
         }
     }
 
+    /// Record that a new HTTP client was created
     pub fn record_client_created(&self) {
         self.clients_created.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// Record a cache hit event
     pub fn record_cache_hit(&self) {
         self.cache_hits.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// Record a cache miss event
     pub fn record_cache_miss(&self) {
         self.cache_misses.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// Record that the cache was cleared
     pub fn record_cache_clear(&self) {
         let now = self.created_at.elapsed().as_secs();
         self.last_cache_clear.store(now, Ordering::Relaxed);
     }
 
+    /// Calculate the cache hit rate as a percentage
     pub fn cache_hit_rate(&self) -> f64 {
         let hits = self.cache_hits.load(Ordering::Relaxed) as f64;
         let misses = self.cache_misses.load(Ordering::Relaxed) as f64;
@@ -343,7 +355,7 @@ static HTTP_POOL: std::sync::OnceLock<HttpClientPool> = std::sync::OnceLock::new
 
 /// Get the global HTTP client pool instance
 pub fn global_http_pool() -> &'static HttpClientPool {
-    HTTP_POOL.get_or_init(|| HttpClientPool::new())
+    HTTP_POOL.get_or_init(HttpClientPool::new)
 }
 
 /// Convenience function to get a mining client

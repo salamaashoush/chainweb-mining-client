@@ -206,7 +206,7 @@ async fn handle_client(
     // Create session
     let extranonce1 = generate_extranonce1();
     let session = Arc::new(RwLock::new(StratumSession::new(
-        extranonce1.clone(),
+        extranonce1,
         1.0, // Initial difficulty
     )));
     let session_id = session.read().await.id;
@@ -392,7 +392,7 @@ async fn handle_request(
             };
 
             // Compose the full nonce
-            let _full_nonce = match compose_nonce(extranonce1.clone(), nonce2) {
+            let _full_nonce = match compose_nonce(*extranonce1, nonce2) {
                 Ok(n) => n,
                 Err(_) => return StratumResponse::error(req.id, 20, "Failed to compose nonce"),
             };
