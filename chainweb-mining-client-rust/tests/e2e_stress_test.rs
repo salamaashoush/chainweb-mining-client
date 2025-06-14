@@ -625,9 +625,11 @@ async fn test_e2e_comprehensive_stress() {
         ..Default::default()
     };
 
-    let coordinator = Arc::new(StressTestCoordinator::new(config)
-        .await
-        .expect("Failed to create stress test coordinator"));
+    let coordinator = Arc::new(
+        StressTestCoordinator::new(config)
+            .await
+            .expect("Failed to create stress test coordinator"),
+    );
 
     // Start node health monitoring
     let health_monitor = {
