@@ -5,5 +5,5 @@ pub mod http_pool;
 pub mod retry;
 
 pub use chainweb::ChainwebClient;
-pub use http_pool::{HttpClientPool, HttpPoolConfig, ClientType, global_http_pool};
+pub use http_pool::{ClientType, HttpClientPool, HttpPoolConfig, global_http_pool};
 pub use retry::{RetryPolicy, retry_http};

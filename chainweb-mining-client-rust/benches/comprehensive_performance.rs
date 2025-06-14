@@ -3,12 +3,12 @@
 //! This benchmark suite provides thorough testing of all critical performance
 //! characteristics needed for production deployment.
 
-use chainweb_mining_client::core::{ChainId, Nonce, Target, Work, VectorizedMiner, AdaptiveHasher};
-use chainweb_mining_client::protocol::http_pool::{HttpClientPool, HttpPoolConfig, ClientType};
+use chainweb_mining_client::core::{AdaptiveHasher, ChainId, Nonce, Target, VectorizedMiner, Work};
+use chainweb_mining_client::protocol::http_pool::{ClientType, HttpClientPool, HttpPoolConfig};
 use chainweb_mining_client::utils::units;
 use criterion::{
-    Criterion, criterion_group, criterion_main, BenchmarkId, Throughput,
-    black_box, BatchSize, PlotConfiguration, AxisScale
+    AxisScale, BatchSize, BenchmarkId, Criterion, PlotConfiguration, Throughput, black_box,
+    criterion_group, criterion_main,
 };
 use std::hint::black_box as std_black_box;
 use std::time::{Duration, Instant};
@@ -18,13 +18,13 @@ use tokio::runtime::Runtime;
 fn bench_vectorized_mining(c: &mut Criterion) {
     let mut group = c.benchmark_group("vectorized_mining");
     group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Logarithmic));
-    
+
     let base_work = [0x42u8; 286];
     let batch_sizes = vec![8, 16, 32, 64, 128, 256];
-    
+
     for &batch_size in &batch_sizes {
         group.throughput(Throughput::Elements(batch_size as u64));
-        
+
         group.bench_with_input(
             BenchmarkId::new("vectorized_batch_mining", batch_size),
             &batch_size,
@@ -40,7 +40,7 @@ fn bench_vectorized_mining(c: &mut Criterion) {
             },
         );
     }
-    
+
     group.finish();
 }
 
@@ -48,9 +48,9 @@ fn bench_vectorized_mining(c: &mut Criterion) {
 fn bench_adaptive_hashing(c: &mut Criterion) {
     let mut group = c.benchmark_group("adaptive_hashing");
     group.measurement_time(Duration::from_secs(10));
-    
+
     let base_work = [0x55u8; 286];
-    
+
     group.bench_function("adaptive_hasher_auto_tune", |b| {
         b.iter_batched(
             || AdaptiveHasher::new(),
@@ -62,12 +62,12 @@ fn bench_adaptive_hashing(c: &mut Criterion) {
             BatchSize::SmallInput,
         );
     });
-    
+
     group.bench_function("adaptive_hasher_optimal_performance", |b| {
         let mut hasher = AdaptiveHasher::new();
         hasher.auto_tune(&base_work);
         let optimal_size = hasher.optimal_batch_size();
-        
+
         b.iter(|| {
             // Simulate mining with optimal batch size
             let mut vectorized = VectorizedMiner::new(optimal_size);
@@ -75,7 +75,7 @@ fn bench_adaptive_hashing(c: &mut Criterion) {
             black_box(hashes);
         });
     });
-    
+
     group.finish();
 }
 
@@ -84,20 +84,20 @@ fn bench_stress_mining(c: &mut Criterion) {
     let mut group = c.benchmark_group("stress_mining");
     group.measurement_time(Duration::from_secs(15));
     group.sample_size(50);
-    
+
     // Stress test parameters
     let iterations = vec![1_000, 10_000, 100_000];
     let batch_size = 100_000;
-    
+
     for &iteration_count in &iterations {
         group.throughput(Throughput::Elements(iteration_count));
-        
+
         group.bench_with_input(
             BenchmarkId::new("stress_hash_computation", iteration_count),
             &iteration_count,
             |b, &iteration_count| {
                 let mut work = Work::from_bytes([0x77u8; 286]);
-                
+
                 b.iter(|| {
                     let mut nonce_val = 0u64;
                     for _ in 0..iteration_count {
@@ -110,7 +110,7 @@ fn bench_stress_mining(c: &mut Criterion) {
             },
         );
     }
-    
+
     // Memory pressure test
     group.bench_function("memory_pressure_test", |b| {
         b.iter(|| {
@@ -119,7 +119,7 @@ fn bench_stress_mining(c: &mut Criterion) {
             for _ in 0..100 {
                 miners.push(VectorizedMiner::new(batch_size));
             }
-            
+
             // Use all miners simultaneously
             for (i, miner) in miners.iter_mut().enumerate() {
                 let mut base_work = [0u8; 286];
@@ -127,11 +127,11 @@ fn bench_stress_mining(c: &mut Criterion) {
                 let hashes = miner.mine_batch(&base_work, i as u64 * 1000, 50);
                 std_black_box(hashes);
             }
-            
+
             std_black_box(miners.len());
         });
     });
-    
+
     group.finish();
 }
 
@@ -139,10 +139,10 @@ fn bench_stress_mining(c: &mut Criterion) {
 fn bench_http_pool_stress(c: &mut Criterion) {
     let mut group = c.benchmark_group("http_pool_stress");
     group.measurement_time(Duration::from_secs(10));
-    
+
     // Test concurrent client creation and usage
     let thread_counts = vec![1, 5, 10, 20, 50];
-    
+
     for &thread_count in &thread_counts {
         group.bench_with_input(
             BenchmarkId::new("concurrent_client_creation", thread_count),
@@ -157,30 +157,31 @@ fn bench_http_pool_stress(c: &mut Criterion) {
                                 move || {
                                     for _ in 0..10 {
                                         let _client = pool.get_client(ClientType::Mining).unwrap();
-                                        let _config_client = pool.get_client(ClientType::Config).unwrap();
+                                        let _config_client =
+                                            pool.get_client(ClientType::Config).unwrap();
                                     }
                                 }
                             })
                         })
                         .collect();
-                    
+
                     for handle in handles {
                         handle.join().unwrap();
                     }
-                    
+
                     let stats = pool.get_stats();
                     std_black_box(stats);
                 });
             },
         );
     }
-    
+
     // Test pool metrics performance
     group.bench_function("pool_metrics_overhead", |b| {
         let mut config = HttpPoolConfig::default();
         config.enable_metrics = true;
         let pool = HttpClientPool::with_config(config);
-        
+
         b.iter(|| {
             for _ in 0..1000 {
                 let _client = pool.get_client(ClientType::Mining).unwrap();
@@ -189,14 +190,14 @@ fn bench_http_pool_stress(c: &mut Criterion) {
             std_black_box(stats);
         });
     });
-    
+
     group.finish();
 }
 
 /// Benchmark target arithmetic performance
 fn bench_target_arithmetic_stress(c: &mut Criterion) {
     let mut group = c.benchmark_group("target_arithmetic_stress");
-    
+
     // Test with various target patterns
     let target_patterns = vec![
         ("max_target", [0xFF; 32]),
@@ -215,7 +216,7 @@ fn bench_target_arithmetic_stress(c: &mut Criterion) {
             bytes
         }),
     ];
-    
+
     let works: Vec<Work> = (0..1000)
         .map(|i| {
             let mut bytes = [0u8; 286];
@@ -224,10 +225,10 @@ fn bench_target_arithmetic_stress(c: &mut Criterion) {
             Work::from_bytes(bytes)
         })
         .collect();
-    
+
     for (pattern_name, target_bytes) in &target_patterns {
         let target = Target::from_bytes(*target_bytes);
-        
+
         group.bench_with_input(
             BenchmarkId::new("batch_target_checking", pattern_name),
             &(&works, &target),
@@ -244,26 +245,40 @@ fn bench_target_arithmetic_stress(c: &mut Criterion) {
             },
         );
     }
-    
+
     group.finish();
 }
 
 /// Benchmark configuration performance under stress
 fn bench_config_stress(c: &mut Criterion) {
     let mut group = c.benchmark_group("config_stress");
-    
+
     // Test unit parsing performance with many values
     let test_values: Vec<String> = vec![
         // Standard values
-        "1000", "1K", "1M", "1G", "1T",
-        // Binary values  
-        "1Ki", "1Mi", "1Gi", "1Ti", "1Pi",
+        "1000",
+        "1K",
+        "1M",
+        "1G",
+        "1T",
+        // Binary values
+        "1Ki",
+        "1Mi",
+        "1Gi",
+        "1Ti",
+        "1Pi",
         // Decimal values
-        "1.5K", "2.7M", "3.14G", "42.0T",
+        "1.5K",
+        "2.7M",
+        "3.14G",
+        "42.0T",
         // Edge cases
-        "0", "1", "999", "1000000000000",
+        "0",
+        "1",
+        "999",
+        "1000000000000",
     ];
-    
+
     // Create many test cases
     let large_test_set: Vec<String> = (0..1000)
         .map(|i| {
@@ -272,7 +287,7 @@ fn bench_config_stress(c: &mut Criterion) {
             format!("{}.{}{}", i % 1000, (i * 13) % 1000, base)
         })
         .collect();
-    
+
     group.bench_function("parse_unit_prefix_stress", |b| {
         b.iter(|| {
             for value in &large_test_set {
@@ -282,7 +297,7 @@ fn bench_config_stress(c: &mut Criterion) {
             }
         });
     });
-    
+
     group.bench_function("parse_hash_rate_stress", |b| {
         b.iter(|| {
             for value in &large_test_set {
@@ -292,7 +307,7 @@ fn bench_config_stress(c: &mut Criterion) {
             }
         });
     });
-    
+
     group.finish();
 }
 
@@ -301,7 +316,7 @@ fn bench_production_simulation(c: &mut Criterion) {
     let mut group = c.benchmark_group("production_simulation");
     group.measurement_time(Duration::from_secs(20));
     group.sample_size(20);
-    
+
     // Simulate realistic mining pool scenario
     group.bench_function("mining_pool_simulation", |b| {
         b.iter_batched(
@@ -313,28 +328,28 @@ fn bench_production_simulation(c: &mut Criterion) {
                 for _ in 0..miner_count {
                     miners.push(VectorizedMiner::new(batch_size));
                 }
-                
+
                 let target = Target::from_bytes({
                     let mut bytes = [0x00; 32];
                     bytes[0] = 0x00;
                     bytes[1] = 0x0F; // Medium difficulty
                     bytes
                 });
-                
+
                 (miners, target)
             },
             |(mut miners, target)| {
                 let mut total_hashes = 0u64;
                 let mut solutions_found = 0u32;
-                
+
                 // Simulate mining round for each miner
                 for (miner_id, miner) in miners.iter_mut().enumerate() {
                     let mut base_work = [0x42u8; 286];
                     base_work[0] = miner_id as u8; // Unique work per miner
-                    
+
                     let start_nonce = miner_id as u64 * 100_000;
                     let hashes = miner.mine_batch(&base_work, start_nonce, 500);
-                    
+
                     // Check for solutions
                     for (i, hash) in hashes.iter().enumerate() {
                         total_hashes += 1;
@@ -344,33 +359,33 @@ fn bench_production_simulation(c: &mut Criterion) {
                         }
                     }
                 }
-                
+
                 std_black_box((total_hashes, solutions_found));
             },
             BatchSize::SmallInput,
         );
     });
-    
+
     // Simulate Stratum server under load
     group.bench_function("stratum_server_simulation", |b| {
         b.iter(|| {
             // Simulate handling many concurrent mining connections
             let connection_count = 100;
             let jobs_per_connection = 10;
-            
+
             let mut total_jobs = 0;
             let mut total_shares = 0;
-            
+
             for conn_id in 0..connection_count {
                 // Simulate job distribution
                 for job_id in 0..jobs_per_connection {
                     let job_data = format!("job_{}_{}", conn_id, job_id);
                     total_jobs += 1;
-                    
+
                     // Simulate share submissions (some connections more active)
                     let shares_for_job = if conn_id % 3 == 0 { 5 } else { 2 };
                     total_shares += shares_for_job;
-                    
+
                     // Simulate share validation
                     for share_id in 0..shares_for_job {
                         let mut work = Work::from_bytes([0x33u8; 286]);
@@ -380,11 +395,11 @@ fn bench_production_simulation(c: &mut Criterion) {
                     }
                 }
             }
-            
+
             std_black_box((total_jobs, total_shares));
         });
     });
-    
+
     group.finish();
 }
 
@@ -392,32 +407,32 @@ fn bench_production_simulation(c: &mut Criterion) {
 fn bench_memory_efficiency(c: &mut Criterion) {
     let mut group = c.benchmark_group("memory_efficiency");
     group.measurement_time(Duration::from_secs(8));
-    
+
     // Test memory allocation patterns
     group.bench_function("allocation_pattern_test", |b| {
         b.iter(|| {
             // Test the optimized allocation patterns
             let mut allocations = Vec::new();
-            
+
             // Simulate mining client memory usage
             for i in 0..100 {
                 // Work allocation
                 let work = Work::from_bytes([i as u8; 286]);
                 allocations.push(work);
-                
-                // Miner allocation  
+
+                // Miner allocation
                 let miner = VectorizedMiner::new(64);
                 std_black_box(miner);
-                
+
                 // Target allocation
                 let target = Target::from_bytes([i as u8; 32]);
                 std_black_box(target);
             }
-            
+
             std_black_box(allocations.len());
         });
     });
-    
+
     // Test buffer reuse efficiency
     group.bench_function("buffer_reuse_efficiency", |b| {
         b.iter_batched(
@@ -434,7 +449,7 @@ fn bench_memory_efficiency(c: &mut Criterion) {
             BatchSize::SmallInput,
         );
     });
-    
+
     group.finish();
 }
 

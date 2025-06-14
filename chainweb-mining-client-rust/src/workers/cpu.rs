@@ -1,6 +1,6 @@
 //! CPU mining implementation using multiple threads
 
-use crate::core::{Nonce, Target, Work, VectorizedMiner};
+use crate::core::{Nonce, Target, VectorizedMiner, Work};
 use crate::error::Result;
 use crate::utils::monitoring::global_monitoring;
 use crate::workers::{MiningResult, Worker};
@@ -51,13 +51,13 @@ impl NonceBufferPool {
             buffer.resize(batch_size as usize, 0);
             buffers.push(buffer);
         }
-        
+
         Self {
             buffers: Arc::new(Mutex::new(buffers)),
             batch_size,
         }
     }
-    
+
     fn get_buffer(&self) -> Vec<u64> {
         let mut buffers = self.buffers.lock();
         buffers.pop().unwrap_or_else(|| {
@@ -66,11 +66,12 @@ impl NonceBufferPool {
             buffer
         })
     }
-    
+
     fn return_buffer(&self, buffer: Vec<u64>) {
         if buffer.capacity() >= self.batch_size as usize {
             let mut buffers = self.buffers.lock();
-            if buffers.len() < 8 { // Limit pool size
+            if buffers.len() < 8 {
+                // Limit pool size
                 buffers.push(buffer);
             }
         }
@@ -140,7 +141,7 @@ impl CpuWorker {
 
             // Create working copy on stack (avoid allocation)
             let mut work_copy = *work_bytes;
-            
+
             // Modify nonce in-place (nonce is at bytes 8-16)
             let nonce = Nonce::new(nonce_value);
             work_copy[8..16].copy_from_slice(&nonce.to_le_bytes());
@@ -156,7 +157,7 @@ impl CpuWorker {
             }
         })
     }
-    
+
     /// SIMD-optimized batch mining using vectorized hashing
     fn mine_batch_simd(
         work_bytes: &[u8; 286],
@@ -169,22 +170,23 @@ impl CpuWorker {
         // Use adaptive batch sizing for optimal SIMD performance
         let simd_batch_size = (batch_size as usize).min(vectorized_miner.work_buffer.len());
         let num_batches = (batch_size as usize + simd_batch_size - 1) / simd_batch_size;
-        
+
         for batch_idx in 0..num_batches {
             if !is_mining.load(Ordering::Relaxed) {
                 return None;
             }
-            
+
             let batch_start_nonce = start_nonce + (batch_idx * simd_batch_size) as u64;
             let current_batch_size = if batch_idx == num_batches - 1 {
                 batch_size as usize - batch_idx * simd_batch_size
             } else {
                 simd_batch_size
             };
-            
+
             // Use vectorized mining for this sub-batch
-            let hashes = vectorized_miner.mine_batch(work_bytes, batch_start_nonce, current_batch_size);
-            
+            let hashes =
+                vectorized_miner.mine_batch(work_bytes, batch_start_nonce, current_batch_size);
+
             // Check each hash against target
             for (i, hash) in hashes.iter().enumerate() {
                 if target.meets_target(hash) {
@@ -193,7 +195,7 @@ impl CpuWorker {
                 }
             }
         }
-        
+
         None
     }
 }
@@ -219,7 +221,7 @@ impl Worker for CpuWorker {
         let batch_size = self.config.batch_size;
         let nonce_pool = self.nonce_pool.clone();
         let vectorized_pool = self.vectorized_miner_pool.clone();
-        
+
         // Get work as bytes once to avoid repeated cloning
         let work_bytes = *work.as_bytes();
 
@@ -227,13 +229,14 @@ impl Worker for CpuWorker {
         task::spawn_blocking(move || {
             let mut current_nonce = 0u64;
             let nonce_buffer = nonce_pool.get_buffer();
-            
+
             // Get a vectorized miner from the pool
             let mut vectorized_miner = {
                 let mut pool = vectorized_pool.lock();
-                pool.pop().unwrap_or_else(|| VectorizedMiner::new(batch_size as usize))
+                pool.pop()
+                    .unwrap_or_else(|| VectorizedMiner::new(batch_size as usize))
             };
-            
+
             // Initialize monitoring
             let monitoring = global_monitoring();
             let start_time = Instant::now();
@@ -245,7 +248,7 @@ impl Worker for CpuWorker {
                 if !is_mining.load(Ordering::Relaxed) {
                     break None;
                 }
-                
+
                 // Try SIMD-optimized mining first (better performance)
                 if let Some((nonce, hash)) = Self::mine_batch_simd(
                     &work_bytes,
@@ -256,7 +259,7 @@ impl Worker for CpuWorker {
                     &is_mining,
                 ) {
                     info!("Found solution! Nonce: {} (SIMD)", nonce);
-                    
+
                     // Record solution found
                     monitoring.record_solution();
 
@@ -269,7 +272,7 @@ impl Worker for CpuWorker {
                         nonce,
                         hash,
                     };
-                    
+
                     // Stop mining after finding solution
                     is_mining.store(false, Ordering::Relaxed);
                     break Some(result);
@@ -278,7 +281,7 @@ impl Worker for CpuWorker {
                 // Update counters
                 hash_count.fetch_add(batch_size, Ordering::Relaxed);
                 current_nonce = current_nonce.wrapping_add(batch_size);
-                
+
                 // Update monitoring metrics periodically
                 let now = Instant::now();
                 if now.duration_since(last_hash_rate_update) >= Duration::from_secs(1) {
@@ -289,7 +292,7 @@ impl Worker for CpuWorker {
                     } else {
                         0.0
                     };
-                    
+
                     monitoring.record_hash_rate(current_hash_rate);
                     last_hash_rate_update = now;
                 }
@@ -299,23 +302,24 @@ impl Worker for CpuWorker {
                     std::thread::yield_now();
                 }
             };
-            
+
             // Return vectorized miner to pool
             {
                 let mut pool = vectorized_pool.lock();
-                if pool.len() < 16 { // Limit pool size
+                if pool.len() < 16 {
+                    // Limit pool size
                     pool.push(vectorized_miner);
                 }
             }
-            
+
             // Return buffer to pool before sending result
             nonce_pool.return_buffer(nonce_buffer);
-            
+
             // Send result if found
             if let Some(result) = mining_result {
                 let _ = result_tx.blocking_send(result);
             }
-            
+
             debug!("CPU mining stopped");
         });
 
@@ -432,9 +436,10 @@ mod tests {
         // Test with optimized batch mining
         let work_bytes = *work.as_bytes();
         let mut nonce_buffer = vec![0u64; 1000];
-        
+
         // Should find solution in first batch
-        let result = CpuWorker::mine_batch_optimized(&work_bytes, &target, 0, &mut nonce_buffer, &is_mining);
+        let result =
+            CpuWorker::mine_batch_optimized(&work_bytes, &target, 0, &mut nonce_buffer, &is_mining);
         assert!(result.is_some());
 
         if let Some((nonce, hash)) = result {

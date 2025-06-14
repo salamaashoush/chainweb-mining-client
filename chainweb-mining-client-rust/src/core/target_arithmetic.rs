@@ -5,7 +5,7 @@
 
 use crate::error::{Error, Result};
 use num_bigint::{BigUint, ToBigUint};
-use num_traits::{One, Zero, ToPrimitive};
+use num_traits::{One, ToPrimitive, Zero};
 use std::cmp::Ordering;
 use std::fmt;
 
@@ -32,7 +32,7 @@ impl TargetWords {
     /// Create from bytes (big-endian)
     pub fn from_bytes(bytes: [u8; 32]) -> Self {
         let mut words = [0u64; TARGET_WORDS];
-        
+
         // Convert big-endian bytes to little-endian words
         for i in 0..TARGET_WORDS {
             let start = (TARGET_WORDS - 1 - i) * 8;
@@ -47,21 +47,21 @@ impl TargetWords {
                 bytes[start + 7],
             ]);
         }
-        
+
         Self { words }
     }
 
     /// Convert to bytes (big-endian)
     pub fn to_bytes(&self) -> [u8; 32] {
         let mut bytes = [0u8; 32];
-        
+
         // Convert little-endian words to big-endian bytes
         for i in 0..TARGET_WORDS {
             let word_bytes = self.words[i].to_be_bytes();
             let start = (TARGET_WORDS - 1 - i) * 8;
             bytes[start..start + 8].copy_from_slice(&word_bytes);
         }
-        
+
         bytes
     }
 
@@ -74,11 +74,11 @@ impl TargetWords {
 
         let bytes = value.to_bytes_be();
         let mut target_bytes = [0u8; 32];
-        
+
         // Copy bytes, right-aligned
         let start = 32usize.saturating_sub(bytes.len());
         target_bytes[start..].copy_from_slice(&bytes);
-        
+
         Ok(Self::from_bytes(target_bytes))
     }
 
@@ -323,11 +323,11 @@ impl TargetArithmetic {
     pub fn difficulty_from_target(target: &TargetWords) -> Result<BigUint> {
         let max_target = TargetWords::max_target().to_biguint();
         let target_value = target.to_biguint();
-        
+
         if target_value.is_zero() {
             return Err(Error::invalid_target("Target cannot be zero"));
         }
-        
+
         Ok(max_target / target_value)
     }
 
@@ -336,10 +336,10 @@ impl TargetArithmetic {
         if difficulty.is_zero() {
             return Err(Error::invalid_target("Difficulty cannot be zero"));
         }
-        
+
         let max_target = TargetWords::max_target().to_biguint();
         let target_value = max_target / difficulty;
-        
+
         TargetWords::from_biguint(&target_value)
     }
 
@@ -354,8 +354,9 @@ impl TargetArithmetic {
         }
 
         let current = current_target.to_biguint();
-        let adjusted = &current * time_taken.to_biguint().unwrap() / expected_time.to_biguint().unwrap();
-        
+        let adjusted =
+            &current * time_taken.to_biguint().unwrap() / expected_time.to_biguint().unwrap();
+
         // Ensure we don't exceed max target
         let max_target = TargetWords::max_target().to_biguint();
         let clamped = if adjusted > max_target {
@@ -363,19 +364,19 @@ impl TargetArithmetic {
         } else {
             adjusted
         };
-        
+
         TargetWords::from_biguint(&clamped)
     }
 
     /// Calculate the probability of finding a block with given target and hash rate
-    pub fn block_probability(
-        target: &TargetWords,
-        hash_rate: f64,
-        time_seconds: f64,
-    ) -> f64 {
-        let target_ratio = target.to_biguint().to_f64().unwrap_or(0.0) / TargetWords::max_target().to_biguint().to_f64().unwrap_or(1.0);
+    pub fn block_probability(target: &TargetWords, hash_rate: f64, time_seconds: f64) -> f64 {
+        let target_ratio = target.to_biguint().to_f64().unwrap_or(0.0)
+            / TargetWords::max_target()
+                .to_biguint()
+                .to_f64()
+                .unwrap_or(1.0);
         let attempts = hash_rate * time_seconds;
-        
+
         // Probability = 1 - (1 - p)^n where p = target/max_target and n = attempts
         // For small p and large n, this approximates to 1 - e^(-p*n)
         let exponent = -target_ratio * attempts;
@@ -392,7 +393,7 @@ impl TargetArithmetic {
             .unwrap_or_else(|_| BigUint::one())
             .to_f64()
             .unwrap_or(1.0);
-        
+
         difficulty / hash_rate
     }
 }
@@ -412,19 +413,19 @@ mod tests {
     fn test_target_words_arithmetic() {
         let one = TargetWords::from_words([1, 0, 0, 0]);
         let two = TargetWords::from_words([2, 0, 0, 0]);
-        
+
         // Addition
         let three = one.checked_add(&two).unwrap();
         assert_eq!(three.words[0], 3);
-        
+
         // Subtraction
         let one_again = three.checked_sub(&two).unwrap();
         assert_eq!(one_again, one);
-        
+
         // Multiplication
         let four = two.checked_mul_scalar(2).unwrap();
         assert_eq!(four.words[0], 4);
-        
+
         // Division
         let (two_again, remainder) = four.div_scalar(2).unwrap();
         assert_eq!(two_again, two);
@@ -434,15 +435,15 @@ mod tests {
     #[test]
     fn test_target_words_shifts() {
         let one = TargetWords::from_words([1, 0, 0, 0]);
-        
+
         // Left shift
         let two = one.shl(1);
         assert_eq!(two.words[0], 2);
-        
+
         let large = one.shl(64);
         assert_eq!(large.words[0], 0);
         assert_eq!(large.words[1], 1);
-        
+
         // Right shift
         let one_again = two.shr(1);
         assert_eq!(one_again, one);
@@ -452,11 +453,11 @@ mod tests {
     fn test_level_conversion() {
         let level = Level::new(10);
         let target = level.to_target().unwrap();
-        
+
         // Max target shifted right by 10 bits
         let expected = TargetWords::max_target().shr(10);
         assert_eq!(target, expected);
-        
+
         // Convert back (approximately)
         let level_again = Level::from_target(&target);
         assert_eq!(level_again.value(), 10);
@@ -467,7 +468,7 @@ mod tests {
         let max_target = TargetWords::max_target();
         let difficulty = TargetArithmetic::difficulty_from_target(&max_target).unwrap();
         assert_eq!(difficulty, BigUint::one());
-        
+
         // Half target = double difficulty
         let half_target = max_target.shr(1);
         let double_difficulty = TargetArithmetic::difficulty_from_target(&half_target).unwrap();
@@ -477,11 +478,11 @@ mod tests {
     #[test]
     fn test_target_adjustment() {
         let current = TargetWords::from_words([1000, 0, 0, 0]);
-        
+
         // If mining took twice as long, target should double (easier)
         let adjusted = TargetArithmetic::adjust_target(&current, 200, 100).unwrap();
         assert_eq!(adjusted.words[0], 2000);
-        
+
         // If mining was twice as fast, target should halve (harder)
         let adjusted = TargetArithmetic::adjust_target(&current, 50, 100).unwrap();
         assert_eq!(adjusted.words[0], 500);
@@ -490,13 +491,13 @@ mod tests {
     #[test]
     fn test_overflow_detection() {
         let max = TargetWords::max_target();
-        
+
         // Addition overflow
         assert!(max.checked_add(&max).is_none());
-        
+
         // Multiplication overflow
         assert!(max.checked_mul_scalar(2).is_none());
-        
+
         // Subtraction underflow
         let zero = TargetWords::zero();
         let one = TargetWords::from_words([1, 0, 0, 0]);
@@ -525,17 +526,17 @@ mod property_tests {
             shift in 0u32..32u32  // Small shifts to avoid precision loss
         ) {
             let target = TargetWords::from_words(words);
-            
+
             // Test that shift operations don't panic and produce sensible results
             let shifted_left = target.shl(shift);
             let shifted_right = target.shr(shift);
-            
+
             // Basic properties: shifting by 0 should be identity
             if shift == 0 {
                 prop_assert_eq!(shifted_left, target);
                 prop_assert_eq!(shifted_right, target);
             }
-            
+
             // Shifting left should generally increase or maintain the value
             // (unless overflow occurs)
             prop_assert!(true); // Just verify no panic for now
@@ -546,7 +547,7 @@ mod property_tests {
             let level_obj = Level::new(level);
             let target = level_obj.to_target().unwrap();
             let level_again = Level::from_target(&target);
-            
+
             // Due to rounding, we might lose precision
             prop_assert!(level_again.value() >= level.saturating_sub(1));
             prop_assert!(level_again.value() <= level.saturating_add(1));
@@ -557,14 +558,14 @@ mod property_tests {
             let diff_biguint = BigUint::from(difficulty);
             let target = TargetArithmetic::target_from_difficulty(&diff_biguint).unwrap();
             let diff_again = TargetArithmetic::difficulty_from_target(&target).unwrap();
-            
+
             // Due to integer division, we might lose precision
             let ratio = if difficulty > 1 {
                 diff_again.to_u64().unwrap_or(0) as f64 / difficulty as f64
             } else {
                 1.0
             };
-            
+
             prop_assert!(ratio > 0.9 && ratio < 1.1);
         }
     }

@@ -1,5 +1,5 @@
 //! Advanced nonce handling for Stratum protocol
-//! 
+//!
 //! This module implements the Nonce1/Nonce2 splitting system used by ASIC mining pools.
 //! - Nonce1: Pool-controlled nonce (most significant bytes)
 //! - Nonce2: Miner-controlled nonce (least significant bytes)
@@ -20,7 +20,10 @@ impl NonceSize {
         if size <= 8 {
             Ok(NonceSize(size))
         } else {
-            Err(Error::config(format!("Invalid nonce size: {}, must be 0-8", size)))
+            Err(Error::config(format!(
+                "Invalid nonce size: {}, must be 0-8",
+                size
+            )))
         }
     }
 
@@ -103,11 +106,11 @@ impl Nonce1 {
         client_id.hash(&mut hasher);
         salt.hash(&mut hasher);
         let hash = hasher.finish();
-        
+
         // Shift right to get the most significant bits for the specified size
         let shift_bits = 8 * (8 - size.as_bytes());
         let value = hash >> shift_bits;
-        
+
         Self::new(size, value)
     }
 
@@ -206,7 +209,7 @@ pub fn compose_nonce(nonce1: Nonce1, nonce2: Nonce2) -> Result<Nonce> {
     // Nonce layout in little-endian: Nonce2 (low) || Nonce1 (high)
     let shift_bits = nonce1.size().as_bytes() * 8;
     let composed = (nonce2.value() << shift_bits) | nonce1.value();
-    
+
     Ok(Nonce::new(composed))
 }
 
@@ -215,13 +218,13 @@ pub fn split_nonce(nonce: Nonce, nonce1_size: NonceSize) -> Result<(Nonce1, Nonc
     let nonce2_size = nonce1_size.complement();
     let shift_bits = nonce1_size.as_bytes() * 8;
     let nonce1_mask = nonce1_size.max_value();
-    
+
     let nonce1_value = nonce.value() & nonce1_mask;
     let nonce2_value = nonce.value() >> shift_bits;
-    
+
     let nonce1 = Nonce1::new(nonce1_size, nonce1_value)?;
     let nonce2 = Nonce2::new(nonce2_size, nonce2_value)?;
-    
+
     Ok((nonce1, nonce2))
 }
 
@@ -243,10 +246,10 @@ mod tests {
     fn test_nonce1_creation() {
         let size = NonceSize::new(4).unwrap();
         let nonce1 = Nonce1::new(size, 0x12345678).unwrap();
-        
+
         assert_eq!(nonce1.value(), 0x12345678);
         assert_eq!(nonce1.to_hex(), "12345678");
-        
+
         // Test overflow
         assert!(Nonce1::new(size, 0x123456789).is_err());
     }
@@ -255,10 +258,10 @@ mod tests {
     fn test_nonce2_creation() {
         let size = NonceSize::new(4).unwrap();
         let mut nonce2 = Nonce2::new(size, 0x87654321).unwrap();
-        
+
         assert_eq!(nonce2.value(), 0x87654321);
         assert_eq!(nonce2.to_hex(), "87654321");
-        
+
         // Test increment
         assert!(nonce2.increment());
         assert_eq!(nonce2.value(), 0x87654322);
@@ -268,10 +271,10 @@ mod tests {
     fn test_hex_conversion() {
         let size = NonceSize::new(4).unwrap();
         let nonce1 = Nonce1::new(size, 0x12345678).unwrap();
-        
+
         let hex = nonce1.to_hex();
         assert_eq!(hex, "12345678");
-        
+
         let parsed = Nonce1::from_hex(size, &hex).unwrap();
         assert_eq!(parsed, nonce1);
     }
@@ -280,10 +283,10 @@ mod tests {
     fn test_nonce_composition() {
         let nonce1_size = NonceSize::new(4).unwrap();
         let nonce2_size = NonceSize::new(4).unwrap();
-        
+
         let nonce1 = Nonce1::new(nonce1_size, 0x12345678).unwrap();
         let nonce2 = Nonce2::new(nonce2_size, 0x87654321).unwrap();
-        
+
         let composed = compose_nonce(nonce1, nonce2).unwrap();
         assert_eq!(composed.value(), 0x8765432112345678);
     }
@@ -292,10 +295,10 @@ mod tests {
     fn test_nonce_split_and_compose() {
         let original = Nonce::new(0x123456789ABCDEF0);
         let nonce1_size = NonceSize::new(4).unwrap();
-        
+
         let (nonce1, nonce2) = split_nonce(original, nonce1_size).unwrap();
         let recomposed = compose_nonce(nonce1, nonce2).unwrap();
-        
+
         assert_eq!(original.value(), recomposed.value());
     }
 
@@ -303,11 +306,11 @@ mod tests {
     fn test_nonce1_derivation() {
         let size = NonceSize::new(4).unwrap();
         let nonce1 = Nonce1::derive(size, "client123", 42).unwrap();
-        
+
         // Should produce consistent results
         let nonce1_same = Nonce1::derive(size, "client123", 42).unwrap();
         assert_eq!(nonce1, nonce1_same);
-        
+
         // Different clients should produce different nonces
         let nonce1_different = Nonce1::derive(size, "client456", 42).unwrap();
         assert_ne!(nonce1, nonce1_different);
@@ -317,7 +320,7 @@ mod tests {
     fn test_nonce2_overflow() {
         let size = NonceSize::new(1).unwrap(); // Only 255 values
         let mut nonce2 = Nonce2::new(size, 255).unwrap();
-        
+
         // Should not increment beyond max
         assert!(!nonce2.increment());
         assert_eq!(nonce2.value(), 255);
@@ -327,7 +330,7 @@ mod tests {
     fn test_invalid_composition() {
         let nonce1 = Nonce1::new(NonceSize::new(3).unwrap(), 0x123456).unwrap();
         let nonce2 = Nonce2::new(NonceSize::new(4).unwrap(), 0x87654321).unwrap();
-        
+
         // Total size is 7, not 8
         assert!(compose_nonce(nonce1, nonce2).is_err());
     }

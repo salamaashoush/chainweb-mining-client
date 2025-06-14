@@ -12,11 +12,14 @@ mod target_arithmetic;
 mod work;
 
 pub use chain_id::ChainId;
-pub use hash_simd::{OptimizedHasher, VectorizedMiner, AdaptiveHasher};
+pub use hash_simd::{AdaptiveHasher, OptimizedHasher, VectorizedMiner};
 pub use nonce::Nonce;
-pub use preemption::{WorkPreemptor, PreemptionConfig, PreemptionStrategy, PreemptionStats, PreemptionDecision, PreemptionAction};
+pub use preemption::{
+    PreemptionAction, PreemptionConfig, PreemptionDecision, PreemptionStats, PreemptionStrategy,
+    WorkPreemptor,
+};
 pub use target::Target;
-pub use target_arithmetic::{TargetWords, Level, TargetArithmetic};
+pub use target_arithmetic::{Level, TargetArithmetic, TargetWords};
 pub use work::Work;
 
 /// Constants for the mining protocol
@@ -62,4 +65,3 @@ mod tests_property_comprehensive;
 
 #[cfg(test)]
 mod tests_blockchain_headers;
-

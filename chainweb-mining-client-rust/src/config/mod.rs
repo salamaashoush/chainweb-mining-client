@@ -349,12 +349,12 @@ impl NodeConfig {
     fn merge(&mut self, other: NodeConfig) {
         // Determine if we should update TLS before consuming the URL
         let should_update_tls = other.use_tls != !other.url.starts_with("http://");
-        
+
         // URL: only override if it's not the default localhost value
         if other.url != "localhost:1848" {
             self.url = other.url;
         }
-        
+
         // TLS settings: only override if they differ from defaults
         if should_update_tls {
             self.use_tls = other.use_tls;
@@ -362,12 +362,12 @@ impl NodeConfig {
         if other.insecure {
             self.insecure = other.insecure;
         }
-        
+
         // Timeout: use other if it's not the default
         if other.timeout_secs != default_timeout() {
             self.timeout_secs = other.timeout_secs;
         }
-        
+
         // Chain ID: use other if specified, otherwise keep current
         if other.chain_id.is_some() {
             self.chain_id = other.chain_id;
@@ -399,7 +399,7 @@ impl MiningConfig {
         if !other.public_key.is_empty() {
             self.public_key = other.public_key;
         }
-        
+
         // Update interval: use other if it's not the default
         if other.update_interval_secs != default_update_interval() {
             self.update_interval_secs = other.update_interval_secs;
@@ -500,17 +500,17 @@ pub struct LoggingConfig {
 
 impl LoggingConfig {
     /// Merge another logging config into this one
-   pub fn merge(&mut self, other: LoggingConfig) {
+    pub fn merge(&mut self, other: LoggingConfig) {
         // Log level: use other if it's not the default
         if other.level != default_log_level() {
             self.level = other.level;
         }
-        
+
         // Log format: use other if it's not the default
         if other.format != default_log_format() {
             self.format = other.format;
         }
-        
+
         // Use other file if specified, otherwise keep current
         if other.file.is_some() {
             self.file = other.file;
@@ -575,17 +575,16 @@ fn default_log_format() -> String {
     "plain".to_string()
 }
 
-
 impl Config {
     /// Load configuration from file or URL
     pub fn from_file(path: &PathBuf) -> Result<Self> {
         let path_str = path.to_string_lossy();
-        
+
         // Check if it's a URL
         if path_str.starts_with("http://") || path_str.starts_with("https://") {
             return Self::from_url(&path_str);
         }
-        
+
         let contents = std::fs::read_to_string(path)
             .map_err(|e| Error::config(format!("Failed to read config file: {}", e)))?;
 
@@ -597,7 +596,7 @@ impl Config {
         // Use blocking approach for synchronous interface
         let runtime = tokio::runtime::Runtime::new()
             .map_err(|e| Error::config(format!("Failed to create async runtime: {}", e)))?;
-        
+
         runtime.block_on(Self::from_url_async(url))
     }
 
@@ -606,11 +605,10 @@ impl Config {
         let client = get_config_client()
             .map_err(|e| Error::config(format!("Failed to get HTTP client: {}", e)))?;
 
-        let response = client
-            .get(url)
-            .send()
-            .await
-            .map_err(|e| Error::config(format!("Failed to fetch config from {}: {}", url, e)))?;
+        let response =
+            client.get(url).send().await.map_err(|e| {
+                Error::config(format!("Failed to fetch config from {}: {}", url, e))
+            })?;
 
         if !response.status().is_success() {
             return Err(Error::config(format!(
@@ -620,10 +618,9 @@ impl Config {
             )));
         }
 
-        let contents = response
-            .text()
-            .await
-            .map_err(|e| Error::config(format!("Failed to read response body from {}: {}", url, e)))?;
+        let contents = response.text().await.map_err(|e| {
+            Error::config(format!("Failed to read response body from {}: {}", url, e))
+        })?;
 
         Self::from_contents(&contents, url)
     }
@@ -649,8 +646,12 @@ impl Config {
                     Ok(config) => config,
                     Err(_) => {
                         // Try flat config format (Haskell-compatible)
-                        let flat: FlatConfig = serde_yaml::from_str(contents)
-                            .map_err(|e| Error::config(format!("Failed to parse YAML config from {}: {}", source, e)))?;
+                        let flat: FlatConfig = serde_yaml::from_str(contents).map_err(|e| {
+                            Error::config(format!(
+                                "Failed to parse YAML config from {}: {}",
+                                source, e
+                            ))
+                        })?;
                         Self::from_flat_config(flat)?
                     }
                 }
@@ -661,8 +662,12 @@ impl Config {
                     Ok(config) => config,
                     Err(_) => {
                         // Try flat config format
-                        let flat: FlatConfig = serde_json::from_str(contents)
-                            .map_err(|e| Error::config(format!("Failed to parse JSON config from {}: {}", source, e)))?;
+                        let flat: FlatConfig = serde_json::from_str(contents).map_err(|e| {
+                            Error::config(format!(
+                                "Failed to parse JSON config from {}: {}",
+                                source, e
+                            ))
+                        })?;
                         Self::from_flat_config(flat)?
                     }
                 }
@@ -673,8 +678,12 @@ impl Config {
                     Ok(config) => config,
                     Err(_) => {
                         // Try flat config format
-                        let flat: FlatConfig = toml::from_str(contents)
-                            .map_err(|e| Error::config(format!("Failed to parse TOML config from {}: {}", source, e)))?;
+                        let flat: FlatConfig = toml::from_str(contents).map_err(|e| {
+                            Error::config(format!(
+                                "Failed to parse TOML config from {}: {}",
+                                source, e
+                            ))
+                        })?;
                         Self::from_flat_config(flat)?
                     }
                 }
@@ -694,7 +703,7 @@ impl Config {
     /// Detect configuration format from content
     fn detect_format(contents: &str) -> &'static str {
         let trimmed = contents.trim();
-        
+
         if trimmed.starts_with('{') {
             "json"
         } else if trimmed.starts_with('[') && trimmed.contains('=') {
@@ -996,14 +1005,14 @@ impl Config {
     pub fn merge(&mut self, other: Config) {
         // Merge node configuration
         self.node.merge(other.node);
-        
+
         // Merge mining configuration
         self.mining.merge(other.mining);
-        
+
         // Worker configuration: use the other worker config if it's different
         // This is complex to merge properly, so we replace it entirely
         self.worker = other.worker;
-        
+
         // Merge logging configuration
         self.logging.merge(other.logging);
     }

@@ -4,7 +4,7 @@
 
 use chainweb_mining_client::{
     config::{Args, Config, WorkerConfig},
-    core::{ChainId, WorkPreemptor, PreemptionConfig, PreemptionStrategy, PreemptionDecision},
+    core::{ChainId, PreemptionConfig, PreemptionDecision, PreemptionStrategy, WorkPreemptor},
     error::Result,
     protocol::chainweb::{ChainwebClient, ChainwebClientConfig},
     utils::{self, monitoring::global_monitoring},
@@ -174,7 +174,7 @@ async fn main() -> Result<()> {
         "Connected to node: {} (API v{})",
         node_info.node_version, node_info.node_api_version
     );
-    
+
     // Set the node version for future API calls
     client.set_node_version(node_info.node_version.clone());
 
@@ -322,16 +322,16 @@ async fn main() -> Result<()> {
                             Ok((new_work, new_target)) => {
                                 // Use preemptor to decide if and how to preempt
                                 let decision = preemptor.should_preempt(&new_work, &current_work);
-                                
+
                                 match decision {
                                     PreemptionDecision::Preempt(action) => {
                                         info!("Preempting current work with action: {:?}", action);
-                                        
+
                                         // Execute preemption using the sophisticated logic
                                         let worker_clone = worker.clone();
                                         let result_tx_clone = result_tx.clone();
                                         let client_clone = client.clone();
-                                        
+
                                         if let Err(e) = preemptor.execute_preemption(
                                             action,
                                             worker_clone,
@@ -347,7 +347,7 @@ async fn main() -> Result<()> {
                                         } else {
                                             // Update current work/target if preemption succeeded
                                             current_work = new_work;
-                                            current_target = new_target; 
+                                            current_target = new_target;
                                         }
                                     }
                                     PreemptionDecision::Skip(reason) => {

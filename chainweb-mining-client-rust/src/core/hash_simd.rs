@@ -24,7 +24,7 @@ impl OptimizedHasher {
             batch_size_hint: if cfg!(target_arch = "x86_64") { 64 } else { 32 },
         }
     }
-    
+
     /// Hash a single work item using optimized implementation
     #[inline]
     pub fn hash_single(&self, work_bytes: &[u8; 286]) -> [u8; 32] {
@@ -32,17 +32,17 @@ impl OptimizedHasher {
         // In real SIMD implementation, this would dispatch to SIMD variants
         self.hash_single_scalar(work_bytes)
     }
-    
+
     /// Hash multiple work items using optimized batch processing
     #[inline]
     pub fn hash_batch(&self, work_items: &[[u8; 286]], results: &mut [[u8; 32]]) {
         assert_eq!(work_items.len(), results.len());
-        
+
         // Use optimized batch processing (parallel when possible)
         // In real SIMD implementation, this would use vectorized instructions
         self.hash_batch_parallel(work_items, results);
     }
-    
+
     /// Standard scalar implementation (fallback)
     #[inline(always)]
     fn hash_single_scalar(&self, work_bytes: &[u8; 286]) -> [u8; 32] {
@@ -50,11 +50,11 @@ impl OptimizedHasher {
         hasher.update(work_bytes);
         hasher.finalize().into()
     }
-    
+
     /// Parallel batch implementation using rayon
     fn hash_batch_parallel(&self, work_items: &[[u8; 286]], results: &mut [[u8; 32]]) {
         use rayon::prelude::*;
-        
+
         // For smaller batches, use sequential processing to avoid overhead
         if work_items.len() < self.batch_size_hint {
             for (work, result) in work_items.iter().zip(results.iter_mut()) {
@@ -62,10 +62,10 @@ impl OptimizedHasher {
             }
             return;
         }
-        
+
         // Process in parallel chunks for better cache efficiency
         let chunk_size = self.batch_size_hint;
-        
+
         work_items
             .par_chunks(chunk_size)
             .zip(results.par_chunks_mut(chunk_size))
@@ -94,37 +94,30 @@ impl VectorizedMiner {
             hash_buffer: vec![[0u8; 32]; batch_size],
         }
     }
-    
+
     /// Prepare work items with different nonces
-    pub fn prepare_work_batch(
-        &mut self,
-        base_work: &[u8; 286],
-        start_nonce: u64,
-        count: usize,
-    ) {
+    pub fn prepare_work_batch(&mut self, base_work: &[u8; 286], start_nonce: u64, count: usize) {
         assert!(count <= self.work_buffer.len());
-        
+
         for (i, work_item) in self.work_buffer[..count].iter_mut().enumerate() {
             *work_item = *base_work;
-            
+
             // Update nonce (at bytes 8-16 in work structure)
             let nonce = start_nonce + i as u64;
             work_item[8..16].copy_from_slice(&nonce.to_le_bytes());
         }
     }
-    
+
     /// Hash the prepared batch and return results
     pub fn hash_prepared_batch(&mut self, count: usize) -> &[[u8; 32]] {
         assert!(count <= self.work_buffer.len());
-        
-        self.hasher.hash_batch(
-            &self.work_buffer[..count],
-            &mut self.hash_buffer[..count],
-        );
-        
+
+        self.hasher
+            .hash_batch(&self.work_buffer[..count], &mut self.hash_buffer[..count]);
+
         &self.hash_buffer[..count]
     }
-    
+
     /// Complete workflow: prepare nonces and hash in one call
     pub fn mine_batch(
         &mut self,
@@ -161,49 +154,50 @@ impl AdaptiveHasher {
             benchmark_interval: std::time::Duration::from_secs(30),
         }
     }
-    
+
     /// Get the current optimal batch size
     pub fn optimal_batch_size(&self) -> usize {
         self.optimal_batch_size
     }
-    
+
     /// Benchmark different batch sizes and update optimal size
     pub fn auto_tune(&mut self, base_work: &[u8; 286]) {
         if self.last_benchmark.elapsed() < self.benchmark_interval {
             return;
         }
-        
+
         let batch_sizes = [16, 32, 64, 128, 256];
         let mut best_size = self.optimal_batch_size;
         let mut best_throughput = 0.0;
-        
+
         for &batch_size in &batch_sizes {
             let start = std::time::Instant::now();
             let iterations = 1000;
-            
+
             // Resize buffer if needed
             if batch_size > self.vectorized.work_buffer.len() {
                 self.vectorized = VectorizedMiner::new(batch_size);
             }
-            
+
             // Benchmark this batch size
             for i in 0..iterations {
                 let start_nonce = i as u64 * batch_size as u64;
-                self.vectorized.mine_batch(base_work, start_nonce, batch_size);
+                self.vectorized
+                    .mine_batch(base_work, start_nonce, batch_size);
             }
-            
+
             let elapsed = start.elapsed();
             let hashes_per_sec = (iterations * batch_size) as f64 / elapsed.as_secs_f64();
-            
+
             if hashes_per_sec > best_throughput {
                 best_throughput = hashes_per_sec;
                 best_size = batch_size;
             }
         }
-        
+
         self.optimal_batch_size = best_size;
         self.last_benchmark = std::time::Instant::now();
-        
+
         tracing::debug!(
             "Auto-tuned batch size to {} (throughput: {:.0} H/s)",
             best_size,
@@ -221,7 +215,7 @@ impl Default for AdaptiveHasher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_optimized_hasher_creation() {
         let hasher = OptimizedHasher::new();
@@ -229,73 +223,73 @@ mod tests {
         let hash = hasher.hash_single(&work);
         assert_eq!(hash.len(), 32);
     }
-    
+
     #[test]
     fn test_hash_consistency() {
         let hasher = OptimizedHasher::new();
         let work = [0u8; 286];
-        
+
         // Hash the same work multiple times
         let hash1 = hasher.hash_single(&work);
         let hash2 = hasher.hash_single(&work);
-        
+
         assert_eq!(hash1, hash2);
     }
-    
+
     #[test]
     fn test_batch_hashing() {
         let hasher = OptimizedHasher::new();
         let work_items = vec![[0u8; 286]; 8];
         let mut results = vec![[0u8; 32]; 8];
-        
+
         hasher.hash_batch(&work_items, &mut results);
-        
+
         // All results should be the same since all work items are identical
         for i in 1..results.len() {
             assert_eq!(results[0], results[i]);
         }
     }
-    
+
     #[test]
     fn test_vectorized_miner() {
         let mut miner = VectorizedMiner::new(16);
         let base_work = [1u8; 286];
-        
+
         let hashes = miner.mine_batch(&base_work, 0, 8);
         assert_eq!(hashes.len(), 8);
-        
+
         // Each hash should be different due to different nonces
         for i in 1..hashes.len() {
             assert_ne!(hashes[0], hashes[i]);
         }
     }
-    
+
     #[test]
     fn test_adaptive_hasher() {
         let mut hasher = AdaptiveHasher::new();
         let base_work = [2u8; 286];
-        
+
         let initial_batch_size = hasher.optimal_batch_size();
         assert!(initial_batch_size > 0);
-        
+
         // Force a benchmark (would normally be rate-limited)
         hasher.benchmark_interval = std::time::Duration::from_nanos(1);
         hasher.auto_tune(&base_work);
-        
+
         let tuned_batch_size = hasher.optimal_batch_size();
         assert!(tuned_batch_size > 0);
     }
-    
+
     #[test]
     fn test_nonce_variation() {
         let mut miner = VectorizedMiner::new(4);
         let mut base_work = [0u8; 286];
-        
+
         // Set a known pattern in the nonce area
         base_work[8..16].copy_from_slice(&42u64.to_le_bytes());
-        
+
         miner.prepare_work_batch(&base_work, 100, 4);
-        
+
         // Check that nonces were properly updated
         for i in 0..4 {
             let expected_nonce = 100 + i as u64;

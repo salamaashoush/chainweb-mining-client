@@ -1,5 +1,5 @@
 //! Job management for Stratum protocol
-//! 
+//!
 //! This module handles job creation, tracking, and management for the Stratum mining pool.
 
 use crate::core::{ChainId, Target, Work};
@@ -7,8 +7,8 @@ use crate::error::{Error, Result};
 use crate::workers::stratum::nonce::{Nonce1, NonceSize};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::SystemTime;
 
 /// Job identifier with hex encoding support
@@ -70,7 +70,10 @@ pub struct ClientWorker {
 impl ClientWorker {
     /// Create a new client worker
     pub fn new(username: String, worker_id: Option<String>) -> Self {
-        Self { username, worker_id }
+        Self {
+            username,
+            worker_id,
+        }
     }
 
     /// Parse from username string (format: "username" or "username.worker_id")
@@ -80,7 +83,11 @@ impl ClientWorker {
             let worker_id = worker.strip_prefix('.').unwrap_or(worker);
             Self {
                 username: user.to_string(),
-                worker_id: if worker_id.is_empty() { None } else { Some(worker_id.to_string()) },
+                worker_id: if worker_id.is_empty() {
+                    None
+                } else {
+                    Some(worker_id.to_string())
+                },
             }
         } else {
             Self {
@@ -144,10 +151,7 @@ impl MiningJob {
 
     /// Get job age in seconds
     pub fn age_seconds(&self) -> u64 {
-        self.created_at
-            .elapsed()
-            .unwrap_or_default()
-            .as_secs()
+        self.created_at.elapsed().unwrap_or_default().as_secs()
     }
 
     /// Check if job is expired (older than max_age_seconds)
@@ -201,7 +205,7 @@ impl JobManager {
     /// Add a new job
     pub fn add_job(&self, job: MiningJob) {
         let mut jobs = self.jobs.write();
-        
+
         // If this is a clean job, clear all existing jobs first
         if job.clean_jobs {
             jobs.clear();
@@ -209,16 +213,16 @@ impl JobManager {
             // Clean up old/expired jobs before adding
             self.cleanup_jobs_internal(&mut jobs);
         }
-        
+
         jobs.insert(job.job_id.clone(), job);
-        
+
         // If we exceed max jobs, remove oldest (only if not a clean job)
         if jobs.len() > self.max_jobs {
             let oldest_job_id = jobs
                 .iter()
                 .min_by_key(|(_, job)| job.created_at)
                 .map(|(id, _)| id.clone());
-            
+
             if let Some(job_id) = oldest_job_id {
                 jobs.remove(&job_id);
             }
@@ -272,19 +276,23 @@ impl JobManager {
     pub fn get_stats(&self) -> JobStats {
         let jobs = self.jobs.read();
         let _now = SystemTime::now();
-        
+
         let mut total_age = 0u64;
         let mut oldest_age = 0u64;
-        
+
         for job in jobs.values() {
             let age = job.age_seconds();
             total_age += age;
             oldest_age = oldest_age.max(age);
         }
-        
+
         JobStats {
             total_jobs: jobs.len(),
-            average_age_seconds: if jobs.is_empty() { 0.0 } else { total_age as f64 / jobs.len() as f64 },
+            average_age_seconds: if jobs.is_empty() {
+                0.0
+            } else {
+                total_age as f64 / jobs.len() as f64
+            },
             oldest_age_seconds: oldest_age,
         }
     }
@@ -343,7 +351,7 @@ mod tests {
         let nonce1 = Nonce1::new(NonceSize::new(4).unwrap(), 0x12345678).unwrap();
 
         let job = MiningJob::new(job_id.clone(), chain_id, target, work, nonce1, false);
-        
+
         assert_eq!(job.job_id, job_id);
         assert_eq!(job.chain_id, chain_id);
         assert!(!job.clean_jobs);
@@ -353,7 +361,7 @@ mod tests {
     #[test]
     fn test_job_manager() {
         let manager = JobManager::new(2, 60); // Max 2 jobs, 60 seconds age
-        
+
         // Add first job
         let job1_id = manager.next_job_id();
         let job1 = MiningJob::new(
@@ -365,7 +373,7 @@ mod tests {
             false,
         );
         manager.add_job(job1);
-        
+
         // Add second job
         let job2_id = manager.next_job_id();
         let job2 = MiningJob::new(
@@ -377,13 +385,13 @@ mod tests {
             false,
         );
         manager.add_job(job2);
-        
+
         assert_eq!(manager.job_count(), 2);
-        
+
         // Get jobs
         let retrieved_job1 = manager.get_job(&job1_id).unwrap();
         assert_eq!(retrieved_job1.job_id, job1_id);
-        
+
         // Add third job (should remove oldest due to max_jobs=2)
         let job3_id = manager.next_job_id();
         let job3 = MiningJob::new(
@@ -395,9 +403,9 @@ mod tests {
             false,
         );
         manager.add_job(job3);
-        
+
         assert_eq!(manager.job_count(), 2);
-        
+
         // First job should be gone
         assert!(manager.get_job(&job1_id).is_none());
         assert!(manager.get_job(&job2_id).is_some());
@@ -407,7 +415,7 @@ mod tests {
     #[test]
     fn test_job_cleanup() {
         let manager = JobManager::new(100, 60); // Normal max age
-        
+
         // Create an old job by manually setting created_at to past
         let job_id = manager.next_job_id();
         let mut job = MiningJob::new(
@@ -420,15 +428,15 @@ mod tests {
         );
         // Make the job appear to be 2 minutes old (older than 60 seconds)
         job.created_at = SystemTime::now() - std::time::Duration::from_secs(120);
-        
+
         // Directly insert the old job to bypass automatic cleanup
         {
             let mut jobs = manager.jobs.write();
             jobs.insert(job_id.clone(), job);
         }
-        
+
         assert_eq!(manager.job_count(), 1);
-        
+
         // Now cleanup should remove the expired job
         let cleaned = manager.cleanup_jobs();
         assert_eq!(cleaned, 1);
@@ -438,7 +446,7 @@ mod tests {
     #[test]
     fn test_job_stats() {
         let manager = JobManager::new(10, 60);
-        
+
         // Add a few jobs
         for i in 0..3 {
             let job_id = manager.next_job_id();
@@ -452,7 +460,7 @@ mod tests {
             );
             manager.add_job(job);
         }
-        
+
         let stats = manager.get_stats();
         assert_eq!(stats.total_jobs, 3);
         assert!(stats.average_age_seconds < 1.0);
@@ -462,7 +470,7 @@ mod tests {
     #[test]
     fn test_clean_all_jobs() {
         let manager = JobManager::new(10, 60);
-        
+
         // Add jobs
         for i in 0..5 {
             let job_id = manager.next_job_id();
@@ -476,9 +484,9 @@ mod tests {
             );
             manager.add_job(job);
         }
-        
+
         assert_eq!(manager.job_count(), 5);
-        
+
         manager.clean_all_jobs();
         assert_eq!(manager.job_count(), 0);
     }

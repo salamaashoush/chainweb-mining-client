@@ -76,16 +76,16 @@ impl PreemptionStats {
     /// Update work fetch timing statistics
     pub fn record_work_fetch(&mut self, duration: Duration) {
         let duration_ms = duration.as_millis() as f64;
-        self.avg_work_fetch_time_ms = 
-            (self.avg_work_fetch_time_ms * self.total_preemptions as f64 + duration_ms) 
+        self.avg_work_fetch_time_ms = (self.avg_work_fetch_time_ms * self.total_preemptions as f64
+            + duration_ms)
             / (self.total_preemptions + 1) as f64;
     }
 
     /// Update restart timing statistics  
     pub fn record_restart(&mut self, duration: Duration) {
         let duration_ms = duration.as_millis() as f64;
-        self.avg_restart_time_ms = 
-            (self.avg_restart_time_ms * self.total_preemptions as f64 + duration_ms) 
+        self.avg_restart_time_ms = (self.avg_restart_time_ms * self.total_preemptions as f64
+            + duration_ms)
             / (self.total_preemptions + 1) as f64;
     }
 
@@ -130,7 +130,7 @@ impl WorkPreemptor {
     /// Determine if preemption should occur based on configuration and timing
     pub fn should_preempt(&self, new_work: &Work, current_work: &Work) -> PreemptionDecision {
         let now = Instant::now();
-        
+
         // Check rate limiting
         if let Some(last_preemption) = *self.last_preemption.lock() {
             if now.duration_since(last_preemption) < self.config.min_preemption_interval {
@@ -147,9 +147,15 @@ impl WorkPreemptor {
 
         // Apply strategy-specific logic
         match self.config.strategy {
-            PreemptionStrategy::Immediate => PreemptionDecision::Preempt(PreemptionAction::Immediate),
-            PreemptionStrategy::BatchComplete => PreemptionDecision::Preempt(PreemptionAction::AfterBatch),
-            PreemptionStrategy::Delayed(duration) => PreemptionDecision::Preempt(PreemptionAction::Delayed(duration)),
+            PreemptionStrategy::Immediate => {
+                PreemptionDecision::Preempt(PreemptionAction::Immediate)
+            }
+            PreemptionStrategy::BatchComplete => {
+                PreemptionDecision::Preempt(PreemptionAction::AfterBatch)
+            }
+            PreemptionStrategy::Delayed(duration) => {
+                PreemptionDecision::Preempt(PreemptionAction::Delayed(duration))
+            }
             PreemptionStrategy::Conditional => {
                 // More sophisticated logic could be added here
                 if self.is_work_significantly_different(new_work, current_work) {
@@ -176,22 +182,25 @@ impl WorkPreemptor {
         Fut: Future<Output = Result<(Work, Target)>>,
     {
         let preemption_start = Instant::now();
-        
+
         debug!("Executing preemption with action: {:?}", action);
 
         match action {
             PreemptionAction::Immediate => {
-                self.immediate_preemption(worker, new_work, new_target, result_tx).await?;
+                self.immediate_preemption(worker, new_work, new_target, result_tx)
+                    .await?;
             }
             PreemptionAction::AfterBatch => {
                 // For batch completion, we could implement a more sophisticated approach
                 // For now, fall back to immediate preemption
                 warn!("Batch completion preemption not fully implemented, using immediate");
-                self.immediate_preemption(worker, new_work, new_target, result_tx).await?;
+                self.immediate_preemption(worker, new_work, new_target, result_tx)
+                    .await?;
             }
             PreemptionAction::Delayed(delay) => {
                 tokio::time::sleep(delay).await;
-                self.immediate_preemption(worker, new_work, new_target, result_tx).await?;
+                self.immediate_preemption(worker, new_work, new_target, result_tx)
+                    .await?;
             }
         }
 
@@ -215,19 +224,19 @@ impl WorkPreemptor {
         result_tx: mpsc::Sender<MiningResult>,
     ) -> Result<()> {
         let _stop_start = Instant::now();
-        
+
         // Stop current mining
         worker.stop().await?;
-        
+
         let restart_start = Instant::now();
-        
+
         // Start mining with new work
         worker.mine(new_work, new_target, result_tx).await?;
-        
+
         // Update timing statistics
         let mut stats = self.stats.lock();
         stats.record_restart(restart_start.elapsed());
-        
+
         Ok(())
     }
 
@@ -236,11 +245,11 @@ impl WorkPreemptor {
         // Compare the work bytes (excluding nonce which might be different)
         let bytes1 = work1.as_bytes();
         let bytes2 = work2.as_bytes();
-        
+
         // Compare everything except the nonce field (typically at the end)
         if bytes1.len() >= 8 && bytes2.len() >= 8 {
             // Compare all bytes except the last 8 (nonce)
-            bytes1[..bytes1.len()-8] == bytes2[..bytes2.len()-8]
+            bytes1[..bytes1.len() - 8] == bytes2[..bytes2.len() - 8]
         } else {
             bytes1 == bytes2
         }
@@ -318,16 +327,16 @@ mod tests {
     #[test]
     fn test_preemption_stats() {
         let mut stats = PreemptionStats::default();
-        
+
         stats.record_work_fetch(Duration::from_millis(50));
         assert_eq!(stats.avg_work_fetch_time_ms, 50.0);
-        
+
         stats.record_restart(Duration::from_millis(25));
         assert_eq!(stats.avg_restart_time_ms, 25.0);
-        
+
         stats.record_downtime(Duration::from_millis(100));
         assert_eq!(stats.total_downtime_ms, 100);
-        
+
         let efficiency = stats.efficiency_percentage(Duration::from_secs(1));
         assert!(efficiency > 80.0); // Should be around 90%
     }
@@ -336,7 +345,7 @@ mod tests {
     fn test_work_preemptor_creation() {
         let config = PreemptionConfig::default();
         let preemptor = WorkPreemptor::new(config);
-        
+
         let stats = preemptor.get_stats();
         assert_eq!(stats.total_preemptions, 0);
         assert_eq!(stats.skipped_preemptions, 0);
@@ -345,23 +354,29 @@ mod tests {
     #[test]
     fn test_preemption_decision_immediate() {
         let preemptor = WorkPreemptor::with_defaults();
-        
+
         let work1 = Work::from_bytes([1u8; WORK_SIZE]);
         let work2 = Work::from_bytes([2u8; WORK_SIZE]);
-        
+
         let decision = preemptor.should_preempt(&work2, &work1);
-        assert_eq!(decision, PreemptionDecision::Preempt(PreemptionAction::Immediate));
+        assert_eq!(
+            decision,
+            PreemptionDecision::Preempt(PreemptionAction::Immediate)
+        );
     }
 
     #[test]
     fn test_preemption_decision_identical_work() {
         let preemptor = WorkPreemptor::with_defaults();
-        
+
         let work1 = Work::from_bytes([1u8; WORK_SIZE]);
         let work2 = Work::from_bytes([1u8; WORK_SIZE]);
-        
+
         let decision = preemptor.should_preempt(&work2, &work1);
-        assert_eq!(decision, PreemptionDecision::Skip(PreemptionSkipReason::IdenticalWork));
+        assert_eq!(
+            decision,
+            PreemptionDecision::Skip(PreemptionSkipReason::IdenticalWork)
+        );
     }
 
     #[test]
@@ -369,31 +384,37 @@ mod tests {
         let mut config = PreemptionConfig::default();
         config.min_preemption_interval = Duration::from_millis(1000);
         let preemptor = WorkPreemptor::new(config);
-        
+
         let work1 = Work::from_bytes([1u8; WORK_SIZE]);
         let work2 = Work::from_bytes([2u8; WORK_SIZE]);
         let work3 = Work::from_bytes([3u8; WORK_SIZE]);
-        
+
         // First preemption should be allowed
         let decision1 = preemptor.should_preempt(&work2, &work1);
-        assert_eq!(decision1, PreemptionDecision::Preempt(PreemptionAction::Immediate));
-        
+        assert_eq!(
+            decision1,
+            PreemptionDecision::Preempt(PreemptionAction::Immediate)
+        );
+
         // Simulate preemption
         *preemptor.last_preemption.lock() = Some(Instant::now());
-        
+
         // Second preemption should be rate limited
         let decision2 = preemptor.should_preempt(&work3, &work2);
-        assert_eq!(decision2, PreemptionDecision::Skip(PreemptionSkipReason::RateLimited));
+        assert_eq!(
+            decision2,
+            PreemptionDecision::Skip(PreemptionSkipReason::RateLimited)
+        );
     }
 
     #[test]
     fn test_work_identical_comparison() {
         let preemptor = WorkPreemptor::with_defaults();
-        
+
         let work1 = Work::from_bytes([1u8; WORK_SIZE]);
         let work2 = Work::from_bytes([1u8; WORK_SIZE]);
         let work3 = Work::from_bytes([2u8; WORK_SIZE]);
-        
+
         assert!(preemptor.is_work_identical(&work1, &work2));
         assert!(!preemptor.is_work_identical(&work1, &work3));
     }
@@ -403,27 +424,30 @@ mod tests {
         let mut config = PreemptionConfig::default();
         config.strategy = PreemptionStrategy::Delayed(Duration::from_millis(100));
         let preemptor = WorkPreemptor::new(config);
-        
+
         let work1 = Work::from_bytes([1u8; WORK_SIZE]);
         let work2 = Work::from_bytes([2u8; WORK_SIZE]);
-        
+
         let decision = preemptor.should_preempt(&work2, &work1);
-        assert_eq!(decision, PreemptionDecision::Preempt(PreemptionAction::Delayed(Duration::from_millis(100))));
+        assert_eq!(
+            decision,
+            PreemptionDecision::Preempt(PreemptionAction::Delayed(Duration::from_millis(100)))
+        );
     }
 
     #[test]
     fn test_stats_reset() {
         let preemptor = WorkPreemptor::with_defaults();
-        
+
         // Simulate some activity
         {
             let mut stats = preemptor.stats.lock();
             stats.total_preemptions = 5;
             stats.skipped_preemptions = 2;
         }
-        
+
         preemptor.reset_stats();
-        
+
         let stats = preemptor.get_stats();
         assert_eq!(stats.total_preemptions, 0);
         assert_eq!(stats.skipped_preemptions, 0);

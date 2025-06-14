@@ -97,33 +97,29 @@ impl ConnectionMetrics {
             last_cache_clear: AtomicU64::new(0),
         }
     }
-    
+
     pub fn record_client_created(&self) {
         self.clients_created.fetch_add(1, Ordering::Relaxed);
     }
-    
+
     pub fn record_cache_hit(&self) {
         self.cache_hits.fetch_add(1, Ordering::Relaxed);
     }
-    
+
     pub fn record_cache_miss(&self) {
         self.cache_misses.fetch_add(1, Ordering::Relaxed);
     }
-    
+
     pub fn record_cache_clear(&self) {
         let now = self.created_at.elapsed().as_secs();
         self.last_cache_clear.store(now, Ordering::Relaxed);
     }
-    
+
     pub fn cache_hit_rate(&self) -> f64 {
         let hits = self.cache_hits.load(Ordering::Relaxed) as f64;
         let misses = self.cache_misses.load(Ordering::Relaxed) as f64;
         let total = hits + misses;
-        if total > 0.0 {
-            hits / total
-        } else {
-            0.0
-        }
+        if total > 0.0 { hits / total } else { 0.0 }
     }
 }
 
@@ -165,7 +161,7 @@ impl HttpClientPool {
                 return Ok(Arc::clone(client));
             }
         }
-        
+
         if self.config.enable_metrics {
             self.metrics.record_cache_miss();
         }
@@ -187,18 +183,21 @@ impl HttpClientPool {
         if self.config.enable_metrics {
             self.metrics.record_client_created();
         }
-        
+
         // Warm up connections if enabled (only when in async context)
         if self.config.enable_warmup && matches!(client_type, ClientType::Mining) {
             let warmup_connections = self.config.warmup_connections;
             // Only spawn if we're in a tokio runtime context
             if let Ok(_handle) = tokio::runtime::Handle::try_current() {
-                tokio::spawn(Self::warmup_client_static(Arc::clone(&client_arc), warmup_connections));
+                tokio::spawn(Self::warmup_client_static(
+                    Arc::clone(&client_arc),
+                    warmup_connections,
+                ));
             } else {
                 debug!("Skipping client warmup - no async runtime available");
             }
         }
-        
+
         info!("Created new HTTP client for type: {:?}", client_type);
         Ok(client_arc)
     }
@@ -209,7 +208,9 @@ impl HttpClientPool {
             .user_agent(&self.config.user_agent)
             .connect_timeout(self.config.connect_timeout)
             .timeout(self.config.request_timeout)
-            .redirect(reqwest::redirect::Policy::limited(self.config.max_redirects))
+            .redirect(reqwest::redirect::Policy::limited(
+                self.config.max_redirects,
+            ))
             .pool_max_idle_per_host(self.config.max_idle_per_host)
             .pool_idle_timeout(self.config.keep_alive_timeout);
 
@@ -258,15 +259,15 @@ impl HttpClientPool {
         // In a real implementation, this would make HTTP HEAD requests to common endpoints
         // to pre-establish connections and warm up the connection pool
         debug!("Warming up HTTP client connections...");
-        
+
         // Simulate connection warmup delay
         sleep(Duration::from_millis(100)).await;
-        
+
         // Note: Actual warmup would require target URLs to connect to
         // This could be implemented by accepting warmup URLs in the config
         debug!("HTTP client warmup completed");
     }
-    
+
     /// Get statistics about the client pool
     pub fn get_stats(&self) -> HttpPoolStats {
         let clients = self.clients.read();
@@ -286,7 +287,7 @@ impl HttpClientPool {
             uptime_seconds: self.metrics.created_at.elapsed().as_secs(),
         }
     }
-    
+
     /// Get detailed metrics about the client pool
     pub fn get_metrics(&self) -> Option<&ConnectionMetrics> {
         if self.config.enable_metrics {
@@ -300,11 +301,11 @@ impl HttpClientPool {
     pub fn clear_cache(&self) {
         let mut clients = self.clients.write();
         clients.clear();
-        
+
         if self.config.enable_metrics {
             self.metrics.record_cache_clear();
         }
-        
+
         info!("HTTP client pool cache cleared");
     }
 
@@ -345,7 +346,6 @@ pub fn global_http_pool() -> &'static HttpClientPool {
     HTTP_POOL.get_or_init(|| HttpClientPool::new())
 }
 
-
 /// Convenience function to get a mining client
 pub fn get_mining_client() -> Result<Arc<Client>> {
     global_http_pool().get_client(ClientType::Mining)
@@ -360,7 +360,6 @@ pub fn get_config_client() -> Result<Arc<Client>> {
 pub fn get_insecure_client() -> Result<Arc<Client>> {
     global_http_pool().get_client(ClientType::Insecure)
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -394,16 +393,16 @@ mod tests {
     #[test]
     fn test_client_creation() {
         let pool = HttpClientPool::new();
-        
+
         // Create mining client
         let mining_client = pool.get_client(ClientType::Mining).unwrap();
         assert_eq!(pool.get_stats().active_clients, 1);
-        
+
         // Get same client again (should reuse)
         let mining_client2 = pool.get_client(ClientType::Mining).unwrap();
         assert_eq!(pool.get_stats().active_clients, 1);
         assert!(Arc::ptr_eq(&mining_client, &mining_client2));
-        
+
         // Create different client type
         let config_client = pool.get_client(ClientType::Config).unwrap();
         assert_eq!(pool.get_stats().active_clients, 2);
@@ -413,16 +412,16 @@ mod tests {
     #[test]
     fn test_client_cache_clear() {
         let pool = HttpClientPool::new();
-        
+
         // Create some clients
         let _mining = pool.get_client(ClientType::Mining).unwrap();
         let _config = pool.get_client(ClientType::Config).unwrap();
         assert_eq!(pool.get_stats().active_clients, 2);
-        
+
         // Clear cache
         pool.clear_cache();
         assert_eq!(pool.get_stats().active_clients, 0);
-        
+
         // Create client again (should be new instance)
         let _new_mining = pool.get_client(ClientType::Mining).unwrap();
         assert_eq!(pool.get_stats().active_clients, 1);
@@ -435,7 +434,7 @@ mod tests {
         let _config = get_config_client().unwrap();
         let _general = global_http_pool().get_client(ClientType::General).unwrap();
         let _insecure = get_insecure_client().unwrap();
-        
+
         let stats = global_http_pool().get_stats();
         assert!(stats.active_clients > 0);
     }
@@ -445,7 +444,7 @@ mod tests {
         let mut config = HttpPoolConfig::default();
         config.max_connections_per_host = 50;
         config.connect_timeout = Duration::from_secs(5);
-        
+
         let pool = HttpClientPool::with_config(config.clone());
         assert_eq!(pool.config.max_connections_per_host, 50);
         assert_eq!(pool.config.connect_timeout, Duration::from_secs(5));
@@ -455,27 +454,25 @@ mod tests {
     fn test_concurrent_client_creation() {
         use std::sync::Arc;
         use std::thread;
-        
+
         let pool = Arc::new(HttpClientPool::new());
         let mut handles = vec![];
-        
+
         // Spawn multiple threads trying to create the same client type
         for _ in 0..10 {
             let pool_clone = Arc::clone(&pool);
-            let handle = thread::spawn(move || {
-                pool_clone.get_client(ClientType::Mining).unwrap()
-            });
+            let handle = thread::spawn(move || pool_clone.get_client(ClientType::Mining).unwrap());
             handles.push(handle);
         }
-        
+
         // Collect all clients
         let clients: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
-        
+
         // All should be the same instance
         for i in 1..clients.len() {
             assert!(Arc::ptr_eq(&clients[0], &clients[i]));
         }
-        
+
         // Only one client should be cached
         assert_eq!(pool.get_stats().active_clients, 1);
     }

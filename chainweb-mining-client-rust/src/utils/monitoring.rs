@@ -7,10 +7,10 @@ use crate::protocol::http_pool::HttpClientPool;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use tracing::{warn, error, info, debug};
+use tracing::{debug, error, info, warn};
 
 /// System health status
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -93,13 +93,13 @@ impl Default for AlertConfig {
         enabled_alerts.insert("memory_usage".to_string(), true);
         enabled_alerts.insert("cpu_usage".to_string(), true);
         enabled_alerts.insert("connection_issues".to_string(), true);
-        
+
         Self {
-            min_hash_rate: 1000.0, // 1 KH/s minimum
-            max_response_time_ms: 10000.0, // 10 seconds max
-            min_acceptance_rate: 0.9, // 90% minimum acceptance
+            min_hash_rate: 1000.0,                      // 1 KH/s minimum
+            max_response_time_ms: 10000.0,              // 10 seconds max
+            min_acceptance_rate: 0.9,                   // 90% minimum acceptance
             max_memory_usage_bytes: 1024 * 1024 * 1024, // 1 GB max
-            max_cpu_utilization: 95.0, // 95% max CPU
+            max_cpu_utilization: 95.0,                  // 95% max CPU
             enabled_alerts,
         }
     }
@@ -145,11 +145,11 @@ impl TimeSeries {
             max_samples,
         }
     }
-    
+
     fn add_sample(&mut self, value: f64) {
         let now = Instant::now();
         self.values.push_back((now, value));
-        
+
         // Remove old samples
         while let Some(&(timestamp, _)) = self.values.front() {
             if now.duration_since(timestamp) > self.max_age {
@@ -158,13 +158,13 @@ impl TimeSeries {
                 break;
             }
         }
-        
+
         // Limit number of samples
         while self.values.len() > self.max_samples {
             self.values.pop_front();
         }
     }
-    
+
     fn average(&self) -> f64 {
         if self.values.is_empty() {
             0.0
@@ -173,27 +173,35 @@ impl TimeSeries {
             sum / self.values.len() as f64
         }
     }
-    
+
     fn max(&self) -> f64 {
         self.values.iter().map(|(_, v)| *v).fold(0.0, f64::max)
     }
-    
+
     fn min(&self) -> f64 {
-        self.values.iter().map(|(_, v)| *v).fold(f64::INFINITY, f64::min)
+        self.values
+            .iter()
+            .map(|(_, v)| *v)
+            .fold(f64::INFINITY, f64::min)
     }
-    
+
     fn trend(&self) -> f64 {
         if self.values.len() < 2 {
             return 0.0;
         }
-        
+
         // Simple linear trend calculation
         let n = self.values.len() as f64;
         let x_sum: f64 = (0..self.values.len()).map(|i| i as f64).sum();
         let y_sum: f64 = self.values.iter().map(|(_, v)| v).sum();
-        let xy_sum: f64 = self.values.iter().enumerate().map(|(i, (_, v))| i as f64 * v).sum();
+        let xy_sum: f64 = self
+            .values
+            .iter()
+            .enumerate()
+            .map(|(i, (_, v))| i as f64 * v)
+            .sum();
         let x2_sum: f64 = (0..self.values.len()).map(|i| (i as f64).powi(2)).sum();
-        
+
         let denominator = n * x2_sum - x_sum.powi(2);
         if denominator.abs() < f64::EPSILON {
             0.0
@@ -246,33 +254,33 @@ impl MonitoringSystem {
             http_pool: None,
         }
     }
-    
+
     /// Create monitoring system with HTTP pool reference
     pub fn with_http_pool(http_pool: Arc<HttpClientPool>) -> Self {
         let mut monitor = Self::new();
         monitor.http_pool = Some(http_pool);
         monitor
     }
-    
+
     /// Update configuration
     pub fn update_config(&self, config: AlertConfig) {
         *self.config.write() = config;
         info!("Monitoring configuration updated");
     }
-    
+
     /// Record hash rate measurement
     pub fn record_hash_rate(&self, hash_rate: f64) {
         if !self.monitoring_enabled.load(Ordering::Relaxed) {
             return;
         }
-        
+
         self.hash_rate_series.write().add_sample(hash_rate);
-        
+
         let mut metrics = self.metrics.write();
         metrics.hash_rate = hash_rate;
         metrics.avg_hash_rate = self.hash_rate_series.read().average();
         metrics.peak_hash_rate = metrics.peak_hash_rate.max(hash_rate);
-        
+
         // Check for alerts
         let config = self.config.read();
         if *config.enabled_alerts.get("hash_rate").unwrap_or(&true) {
@@ -280,7 +288,10 @@ impl MonitoringSystem {
                 self.create_alert(
                     AlertSeverity::Warning,
                     "hash_rate",
-                    &format!("Hash rate {} H/s below minimum {}", hash_rate, config.min_hash_rate),
+                    &format!(
+                        "Hash rate {} H/s below minimum {}",
+                        hash_rate, config.min_hash_rate
+                    ),
                     vec![
                         ("current_rate".to_string(), hash_rate.to_string()),
                         ("minimum_rate".to_string(), config.min_hash_rate.to_string()),
@@ -289,18 +300,20 @@ impl MonitoringSystem {
             }
         }
     }
-    
+
     /// Record response time measurement
     pub fn record_response_time(&self, response_time_ms: f64) {
         if !self.monitoring_enabled.load(Ordering::Relaxed) {
             return;
         }
-        
-        self.response_time_series.write().add_sample(response_time_ms);
-        
+
+        self.response_time_series
+            .write()
+            .add_sample(response_time_ms);
+
         let mut metrics = self.metrics.write();
         metrics.avg_response_time_ms = self.response_time_series.read().average();
-        
+
         // Check for alerts
         let config = self.config.read();
         if *config.enabled_alerts.get("response_time").unwrap_or(&true) {
@@ -308,35 +321,41 @@ impl MonitoringSystem {
                 self.create_alert(
                     AlertSeverity::Critical,
                     "response_time",
-                    &format!("Response time {:.2}ms exceeds maximum {:.2}ms", response_time_ms, config.max_response_time_ms),
+                    &format!(
+                        "Response time {:.2}ms exceeds maximum {:.2}ms",
+                        response_time_ms, config.max_response_time_ms
+                    ),
                     vec![
                         ("current_time".to_string(), response_time_ms.to_string()),
-                        ("maximum_time".to_string(), config.max_response_time_ms.to_string()),
+                        (
+                            "maximum_time".to_string(),
+                            config.max_response_time_ms.to_string(),
+                        ),
                     ],
                 );
             }
         }
     }
-    
+
     /// Record solution found
     pub fn record_solution(&self) {
         self.solutions_counter.fetch_add(1, Ordering::Relaxed);
         let mut metrics = self.metrics.write();
         metrics.solutions_found = self.solutions_counter.load(Ordering::Relaxed);
-        
+
         info!("Solution found - total: {}", metrics.solutions_found);
     }
-    
+
     /// Record share submission
     pub fn record_share_submitted(&self, accepted: bool) {
         self.shares_counter.fetch_add(1, Ordering::Relaxed);
         if accepted {
             self.accepted_shares_counter.fetch_add(1, Ordering::Relaxed);
         }
-        
+
         let total_shares = self.shares_counter.load(Ordering::Relaxed);
         let accepted_shares = self.accepted_shares_counter.load(Ordering::Relaxed);
-        
+
         let mut metrics = self.metrics.write();
         metrics.shares_submitted = total_shares;
         metrics.acceptance_rate = if total_shares > 0 {
@@ -344,20 +363,32 @@ impl MonitoringSystem {
         } else {
             0.0
         };
-        
+
         // Check acceptance rate alerts
         let config = self.config.read();
-        if *config.enabled_alerts.get("acceptance_rate").unwrap_or(&true) {
+        if *config
+            .enabled_alerts
+            .get("acceptance_rate")
+            .unwrap_or(&true)
+        {
             if total_shares >= 10 && metrics.acceptance_rate < config.min_acceptance_rate {
                 self.create_alert(
                     AlertSeverity::Warning,
                     "acceptance_rate",
-                    &format!("Share acceptance rate {:.2}% below minimum {:.2}%", 
-                             metrics.acceptance_rate * 100.0, 
-                             config.min_acceptance_rate * 100.0),
+                    &format!(
+                        "Share acceptance rate {:.2}% below minimum {:.2}%",
+                        metrics.acceptance_rate * 100.0,
+                        config.min_acceptance_rate * 100.0
+                    ),
                     vec![
-                        ("current_rate".to_string(), format!("{:.2}", metrics.acceptance_rate)),
-                        ("minimum_rate".to_string(), format!("{:.2}", config.min_acceptance_rate)),
+                        (
+                            "current_rate".to_string(),
+                            format!("{:.2}", metrics.acceptance_rate),
+                        ),
+                        (
+                            "minimum_rate".to_string(),
+                            format!("{:.2}", config.min_acceptance_rate),
+                        ),
                         ("total_shares".to_string(), total_shares.to_string()),
                         ("accepted_shares".to_string(), accepted_shares.to_string()),
                     ],
@@ -365,18 +396,20 @@ impl MonitoringSystem {
             }
         }
     }
-    
+
     /// Update memory usage
     pub fn record_memory_usage(&self, memory_bytes: u64) {
         if !self.monitoring_enabled.load(Ordering::Relaxed) {
             return;
         }
-        
-        self.memory_usage_series.write().add_sample(memory_bytes as f64);
-        
+
+        self.memory_usage_series
+            .write()
+            .add_sample(memory_bytes as f64);
+
         let mut metrics = self.metrics.write();
         metrics.memory_usage_bytes = memory_bytes;
-        
+
         // Check memory usage alerts
         let config = self.config.read();
         if *config.enabled_alerts.get("memory_usage").unwrap_or(&true) {
@@ -384,25 +417,31 @@ impl MonitoringSystem {
                 self.create_alert(
                     AlertSeverity::Critical,
                     "memory_usage",
-                    &format!("Memory usage {} bytes exceeds maximum {}", memory_bytes, config.max_memory_usage_bytes),
+                    &format!(
+                        "Memory usage {} bytes exceeds maximum {}",
+                        memory_bytes, config.max_memory_usage_bytes
+                    ),
                     vec![
                         ("current_usage".to_string(), memory_bytes.to_string()),
-                        ("maximum_usage".to_string(), config.max_memory_usage_bytes.to_string()),
+                        (
+                            "maximum_usage".to_string(),
+                            config.max_memory_usage_bytes.to_string(),
+                        ),
                     ],
                 );
             }
         }
     }
-    
+
     /// Update CPU utilization
     pub fn record_cpu_utilization(&self, cpu_percent: f64) {
         if !self.monitoring_enabled.load(Ordering::Relaxed) {
             return;
         }
-        
+
         let mut metrics = self.metrics.write();
         metrics.cpu_utilization = cpu_percent;
-        
+
         // Check CPU usage alerts
         let config = self.config.read();
         if *config.enabled_alerts.get("cpu_usage").unwrap_or(&true) {
@@ -410,52 +449,58 @@ impl MonitoringSystem {
                 self.create_alert(
                     AlertSeverity::Warning,
                     "cpu_usage",
-                    &format!("CPU utilization {:.1}% exceeds maximum {:.1}%", cpu_percent, config.max_cpu_utilization),
+                    &format!(
+                        "CPU utilization {:.1}% exceeds maximum {:.1}%",
+                        cpu_percent, config.max_cpu_utilization
+                    ),
                     vec![
                         ("current_usage".to_string(), cpu_percent.to_string()),
-                        ("maximum_usage".to_string(), config.max_cpu_utilization.to_string()),
+                        (
+                            "maximum_usage".to_string(),
+                            config.max_cpu_utilization.to_string(),
+                        ),
                     ],
                 );
             }
         }
     }
-    
+
     /// Perform comprehensive health check
     pub fn health_check(&self) -> HealthStatus {
         let now = Instant::now();
         *self.last_health_check.write() = now;
-        
+
         let metrics = self.metrics.read();
         let config = self.config.read();
-        
+
         // Check various health indicators
         let mut issues = Vec::new();
-        
+
         // Hash rate check
         if metrics.hash_rate < config.min_hash_rate {
             issues.push("Low hash rate");
         }
-        
+
         // Response time check
         if metrics.avg_response_time_ms > config.max_response_time_ms {
             issues.push("High response time");
         }
-        
+
         // Acceptance rate check
         if metrics.shares_submitted > 10 && metrics.acceptance_rate < config.min_acceptance_rate {
             issues.push("Low acceptance rate");
         }
-        
+
         // Memory usage check
         if metrics.memory_usage_bytes > config.max_memory_usage_bytes {
             issues.push("High memory usage");
         }
-        
+
         // CPU usage check
         if metrics.cpu_utilization > config.max_cpu_utilization {
             issues.push("High CPU usage");
         }
-        
+
         // HTTP pool health check
         if let Some(ref pool) = self.http_pool {
             let pool_stats = pool.get_stats();
@@ -465,7 +510,7 @@ impl MonitoringSystem {
                 }
             }
         }
-        
+
         // Determine overall health status
         let status = match issues.len() {
             0 => HealthStatus::Healthy,
@@ -473,27 +518,27 @@ impl MonitoringSystem {
             3..=4 => HealthStatus::Critical,
             _ => HealthStatus::Down,
         };
-        
+
         if !issues.is_empty() {
             debug!("Health check found issues: {:?}", issues);
         }
-        
+
         status
     }
-    
+
     /// Get current performance metrics
     pub fn get_metrics(&self) -> PerformanceMetrics {
         let mut metrics = self.metrics.read().clone();
         metrics.uptime_seconds = self.system_start_time.elapsed().as_secs();
         metrics
     }
-    
+
     /// Get recent alerts
     pub fn get_recent_alerts(&self, max_count: usize) -> Vec<Alert> {
         let alerts = self.recent_alerts.read();
         alerts.iter().take(max_count).cloned().collect()
     }
-    
+
     /// Clear old alerts
     pub fn clear_old_alerts(&self, max_age: Duration) {
         let mut alerts = self.recent_alerts.write();
@@ -502,7 +547,7 @@ impl MonitoringSystem {
             .unwrap_or_default()
             .as_secs()
             .saturating_sub(max_age.as_secs());
-        
+
         while let Some(alert) = alerts.front() {
             if alert.timestamp < cutoff_timestamp {
                 alerts.pop_front();
@@ -511,7 +556,7 @@ impl MonitoringSystem {
             }
         }
     }
-    
+
     /// Enable or disable monitoring
     pub fn set_monitoring_enabled(&self, enabled: bool) {
         self.monitoring_enabled.store(enabled, Ordering::Relaxed);
@@ -521,35 +566,54 @@ impl MonitoringSystem {
             warn!("Monitoring disabled");
         }
     }
-    
+
     /// Generate comprehensive status report
     pub fn generate_status_report(&self) -> String {
         let metrics = self.get_metrics();
         let health = self.health_check();
         let recent_alerts = self.get_recent_alerts(5);
-        
+
         let mut report = String::new();
         report.push_str(&format!("=== Mining Client Status Report ===\n"));
         report.push_str(&format!("Health Status: {:?}\n", health));
         report.push_str(&format!("Uptime: {} seconds\n", metrics.uptime_seconds));
         report.push_str(&format!("\n--- Performance Metrics ---\n"));
-        report.push_str(&format!("Hash Rate: {:.2} H/s (avg: {:.2}, peak: {:.2})\n", 
-                                 metrics.hash_rate, metrics.avg_hash_rate, metrics.peak_hash_rate));
+        report.push_str(&format!(
+            "Hash Rate: {:.2} H/s (avg: {:.2}, peak: {:.2})\n",
+            metrics.hash_rate, metrics.avg_hash_rate, metrics.peak_hash_rate
+        ));
         report.push_str(&format!("Solutions Found: {}\n", metrics.solutions_found));
-        report.push_str(&format!("Shares Submitted: {} (acceptance: {:.1}%)\n", 
-                                 metrics.shares_submitted, metrics.acceptance_rate * 100.0));
-        report.push_str(&format!("Response Time: {:.2} ms\n", metrics.avg_response_time_ms));
-        report.push_str(&format!("Memory Usage: {} bytes\n", metrics.memory_usage_bytes));
-        report.push_str(&format!("CPU Utilization: {:.1}%\n", metrics.cpu_utilization));
-        
+        report.push_str(&format!(
+            "Shares Submitted: {} (acceptance: {:.1}%)\n",
+            metrics.shares_submitted,
+            metrics.acceptance_rate * 100.0
+        ));
+        report.push_str(&format!(
+            "Response Time: {:.2} ms\n",
+            metrics.avg_response_time_ms
+        ));
+        report.push_str(&format!(
+            "Memory Usage: {} bytes\n",
+            metrics.memory_usage_bytes
+        ));
+        report.push_str(&format!(
+            "CPU Utilization: {:.1}%\n",
+            metrics.cpu_utilization
+        ));
+
         if !recent_alerts.is_empty() {
-            report.push_str(&format!("\n--- Recent Alerts ({}) ---\n", recent_alerts.len()));
+            report.push_str(&format!(
+                "\n--- Recent Alerts ({}) ---\n",
+                recent_alerts.len()
+            ));
             for alert in recent_alerts {
-                report.push_str(&format!("[{:?}] {}: {}\n", 
-                                         alert.severity, alert.category, alert.message));
+                report.push_str(&format!(
+                    "[{:?}] {}: {}\n",
+                    alert.severity, alert.category, alert.message
+                ));
             }
         }
-        
+
         if let Some(ref pool) = self.http_pool {
             let pool_stats = pool.get_stats();
             report.push_str(&format!("\n--- HTTP Pool Stats ---\n"));
@@ -559,17 +623,23 @@ impl MonitoringSystem {
                 report.push_str(&format!("Cache Hit Rate: {:.1}%\n", hit_rate * 100.0));
             }
         }
-        
+
         report
     }
-    
+
     /// Internal method to create alerts
-    fn create_alert(&self, severity: AlertSeverity, category: &str, message: &str, context: Vec<(String, String)>) {
+    fn create_alert(
+        &self,
+        severity: AlertSeverity,
+        category: &str,
+        message: &str,
+        context: Vec<(String, String)>,
+    ) {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-            
+
         let alert = Alert {
             severity,
             category: category.to_string(),
@@ -577,7 +647,7 @@ impl MonitoringSystem {
             context: context.into_iter().collect(),
             timestamp,
         };
-        
+
         // Log the alert
         match severity {
             AlertSeverity::Info => info!("[ALERT] {}: {}", category, message),
@@ -585,11 +655,11 @@ impl MonitoringSystem {
             AlertSeverity::Critical => error!("[ALERT] {}: {}", category, message),
             AlertSeverity::Emergency => error!("[EMERGENCY] {}: {}", category, message),
         }
-        
+
         // Store the alert
         let mut alerts = self.recent_alerts.write();
         alerts.push_back(alert);
-        
+
         // Limit number of stored alerts
         while alerts.len() > 1000 {
             alerts.pop_front();
@@ -633,7 +703,7 @@ mod tests {
     fn test_hash_rate_recording() {
         let monitor = MonitoringSystem::new();
         monitor.record_hash_rate(1500.0);
-        
+
         let metrics = monitor.get_metrics();
         assert_eq!(metrics.hash_rate, 1500.0);
         assert_eq!(metrics.peak_hash_rate, 1500.0);
@@ -644,7 +714,7 @@ mod tests {
         let monitor = MonitoringSystem::new();
         monitor.record_solution();
         monitor.record_solution();
-        
+
         let metrics = monitor.get_metrics();
         assert_eq!(metrics.solutions_found, 2);
     }
@@ -655,7 +725,7 @@ mod tests {
         monitor.record_share_submitted(true);
         monitor.record_share_submitted(true);
         monitor.record_share_submitted(false);
-        
+
         let metrics = monitor.get_metrics();
         assert_eq!(metrics.shares_submitted, 3);
         assert!((metrics.acceptance_rate - (2.0 / 3.0)).abs() < 0.001);
@@ -672,10 +742,10 @@ mod tests {
     #[test]
     fn test_alert_generation() {
         let monitor = MonitoringSystem::new();
-        
+
         // Trigger a low hash rate alert
         monitor.record_hash_rate(500.0); // Below default minimum of 1000
-        
+
         let alerts = monitor.get_recent_alerts(10);
         assert!(!alerts.is_empty());
         assert_eq!(alerts[0].category, "hash_rate");
@@ -685,11 +755,11 @@ mod tests {
     #[test]
     fn test_time_series() {
         let mut series = TimeSeries::new(Duration::from_secs(60), 100);
-        
+
         series.add_sample(10.0);
         series.add_sample(20.0);
         series.add_sample(30.0);
-        
+
         assert_eq!(series.average(), 20.0);
         assert_eq!(series.max(), 30.0);
         assert_eq!(series.min(), 10.0);
@@ -698,16 +768,16 @@ mod tests {
     #[test]
     fn test_monitoring_enable_disable() {
         let monitor = MonitoringSystem::new();
-        
+
         monitor.set_monitoring_enabled(false);
         monitor.record_hash_rate(1000.0); // Should be ignored
-        
+
         let metrics = monitor.get_metrics();
         assert_eq!(metrics.hash_rate, 0.0); // Should remain 0
-        
+
         monitor.set_monitoring_enabled(true);
         monitor.record_hash_rate(1000.0); // Should be recorded
-        
+
         let metrics = monitor.get_metrics();
         assert_eq!(metrics.hash_rate, 1000.0);
     }
@@ -717,7 +787,7 @@ mod tests {
         let monitor = MonitoringSystem::new();
         monitor.record_hash_rate(1500.0);
         monitor.record_solution();
-        
+
         let report = monitor.generate_status_report();
         assert!(report.contains("Hash Rate: 1500.00"));
         assert!(report.contains("Solutions Found: 1"));

@@ -1,10 +1,10 @@
 //! Target type for mining difficulty
 
-use crate::error::{Error, Result};
 use crate::core::Work;
+use crate::error::{Error, Result};
+use blake2::{Blake2s256, Digest};
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use blake2::{Blake2s256, Digest};
 
 /// Represents a 256-bit mining target (difficulty threshold)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -27,10 +27,10 @@ impl Target {
 
         let mut array = [0u8; 32];
         array.copy_from_slice(bytes);
-        
+
         // Reverse bytes to convert from little-endian to big-endian
         array.reverse();
-        
+
         Ok(Self(array))
     }
 
@@ -142,7 +142,7 @@ impl Target {
 }
 
 /// Check if a work meets the given target using Blake2s-256 hash
-/// 
+///
 /// This function replicates the Haskell checkTarget logic:
 /// 1. Hash the work with Blake2s-256
 /// 2. Treat the hash as a 256-bit little-endian integer  
@@ -153,10 +153,10 @@ pub fn check_target(target: &Target, work: &Work) -> Result<bool> {
     let mut hasher = Blake2s256::new();
     hasher.update(work.as_bytes());
     let hash_bytes = hasher.finalize();
-    
+
     // Convert little-endian hash to Target (matching Haskell logic)
     let hash_target = Target::from_le_bytes(hash_bytes.into());
-    
+
     // Compare targets: hash_target <= target
     Ok(hash_target.0 <= target.0)
 }
@@ -260,7 +260,7 @@ mod tests {
         le_bytes[31] = 0xFF; // Most significant byte
 
         let target = Target::from_bytes_le(&le_bytes).unwrap();
-        
+
         // After reversal, 0xFF should be at index 0 and 0x01 at index 31
         assert_eq!(target.as_bytes()[0], 0xFF);
         assert_eq!(target.as_bytes()[31], 0x01);

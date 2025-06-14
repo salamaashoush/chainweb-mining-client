@@ -77,17 +77,17 @@ proptest! {
         nonce2 in any::<u64>()
     ) {
         prop_assume!(nonce1 != nonce2);
-        
+
         let bytes_array: [u8; constants::WORK_SIZE] = work_bytes.try_into().unwrap();
         let mut work1 = Work::from_bytes(bytes_array);
         let mut work2 = Work::from_bytes(bytes_array);
-        
+
         work1.set_nonce(Nonce::new(nonce1));
         work2.set_nonce(Nonce::new(nonce2));
-        
+
         let hash1 = work1.hash();
         let hash2 = work2.hash();
-        
+
         prop_assert_ne!(hash1, hash2);
     }
 }
@@ -100,12 +100,12 @@ proptest! {
     ) {
         use crate::core::{PreemptionConfig, WorkPreemptor, PreemptionDecision};
         use crate::core::preemption::PreemptionSkipReason;
-        
+
         let bytes_array: [u8; constants::WORK_SIZE] = work_bytes.try_into().unwrap();
         let preemptor = WorkPreemptor::new(PreemptionConfig::default());
         let work = Work::from_bytes(bytes_array);
         let decision = preemptor.should_preempt(&work, &work);
-        
+
         prop_assert_eq!(decision, PreemptionDecision::Skip(PreemptionSkipReason::IdenticalWork));
     }
 
@@ -116,12 +116,12 @@ proptest! {
     ) {
         use crate::core::{PreemptionConfig, PreemptionStrategy, WorkPreemptor, PreemptionDecision};
         use crate::core::preemption::PreemptionAction;
-        
+
         prop_assume!(work1_bytes != work2_bytes);
-        
+
         let bytes1_array: [u8; constants::WORK_SIZE] = work1_bytes.try_into().unwrap();
         let bytes2_array: [u8; constants::WORK_SIZE] = work2_bytes.try_into().unwrap();
-        
+
         let config = PreemptionConfig {
             strategy: PreemptionStrategy::Immediate,
             ..Default::default()
@@ -129,9 +129,9 @@ proptest! {
         let preemptor = WorkPreemptor::new(config);
         let work1 = Work::from_bytes(bytes1_array);
         let work2 = Work::from_bytes(bytes2_array);
-        
+
         let decision = preemptor.should_preempt(&work2, &work1);
-        
+
         prop_assert_eq!(decision, PreemptionDecision::Preempt(PreemptionAction::Immediate));
     }
 }

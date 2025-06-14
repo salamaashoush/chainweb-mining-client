@@ -4,17 +4,18 @@
 use crate::error::{Error, Result};
 
 /// Parse a numeric value with unit prefixes (e.g., "1M", "100K", "1.5G", "2Ki", "3Mi")
-/// 
+///
 /// Supports all standard SI prefixes (K, M, G, T, P, E, Z, Y) and binary prefixes (Ki, Mi, Gi, Ti, Pi, Ei, Zi, Yi)
 pub fn parse_with_unit(input: &str) -> Result<f64> {
     let input = input.trim();
-    
+
     if input.is_empty() {
         return Err(Error::config("Empty value"));
     }
 
     // Try to find the unit suffix
-    let (number_str, multiplier) = if let Some(pos) = input.find(|c: char| c.is_ascii_alphabetic()) {
+    let (number_str, multiplier) = if let Some(pos) = input.find(|c: char| c.is_ascii_alphabetic())
+    {
         let (num, unit) = input.split_at(pos);
         let mult = parse_unit_multiplier(unit)?;
         (num, mult)
@@ -24,7 +25,9 @@ pub fn parse_with_unit(input: &str) -> Result<f64> {
     };
 
     // Parse the numeric part
-    let number: f64 = number_str.trim().parse()
+    let number: f64 = number_str
+        .trim()
+        .parse()
         .map_err(|_| Error::config(format!("Invalid number: {}", number_str)))?;
 
     Ok(number * multiplier)
@@ -33,11 +36,11 @@ pub fn parse_with_unit(input: &str) -> Result<f64> {
 /// Parse hash rate with unit prefixes (e.g., "1M", "100K", "1.5G", "2Ki", "3Mi")
 pub fn parse_hash_rate(input: &str) -> Result<f64> {
     let value = parse_with_unit(input)?;
-    
+
     if value < 0.0 {
         return Err(Error::config("Hash rate cannot be negative"));
     }
-    
+
     Ok(value)
 }
 
@@ -46,27 +49,27 @@ fn parse_unit_multiplier(unit: &str) -> Result<f64> {
     match unit.trim().to_lowercase().as_str() {
         // No unit
         "" => Ok(1.0),
-        
+
         // SI prefixes (decimal, powers of 1000)
-        "k" => Ok(1e3),   // kilo
-        "m" => Ok(1e6),   // mega
-        "g" => Ok(1e9),   // giga
-        "t" => Ok(1e12),  // tera
-        "p" => Ok(1e15),  // peta
-        "e" => Ok(1e18),  // exa
-        "z" => Ok(1e21),  // zetta
-        "y" => Ok(1e24),  // yotta
-        
+        "k" => Ok(1e3),  // kilo
+        "m" => Ok(1e6),  // mega
+        "g" => Ok(1e9),  // giga
+        "t" => Ok(1e12), // tera
+        "p" => Ok(1e15), // peta
+        "e" => Ok(1e18), // exa
+        "z" => Ok(1e21), // zetta
+        "y" => Ok(1e24), // yotta
+
         // Binary prefixes (powers of 1024)
-        "ki" => Ok(1024f64.powi(1)),  // kibi
-        "mi" => Ok(1024f64.powi(2)),  // mebi
-        "gi" => Ok(1024f64.powi(3)),  // gibi
-        "ti" => Ok(1024f64.powi(4)),  // tebi
-        "pi" => Ok(1024f64.powi(5)),  // pebi
-        "ei" => Ok(1024f64.powi(6)),  // exbi
-        "zi" => Ok(1024f64.powi(7)),  // zebi
-        "yi" => Ok(1024f64.powi(8)),  // yobi
-        
+        "ki" => Ok(1024f64.powi(1)), // kibi
+        "mi" => Ok(1024f64.powi(2)), // mebi
+        "gi" => Ok(1024f64.powi(3)), // gibi
+        "ti" => Ok(1024f64.powi(4)), // tebi
+        "pi" => Ok(1024f64.powi(5)), // pebi
+        "ei" => Ok(1024f64.powi(6)), // exbi
+        "zi" => Ok(1024f64.powi(7)), // zebi
+        "yi" => Ok(1024f64.powi(8)), // yobi
+
         _ => Err(Error::config(format!("Unknown unit prefix: {}", unit))),
     }
 }

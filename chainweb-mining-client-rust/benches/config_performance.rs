@@ -2,15 +2,15 @@
 
 use chainweb_mining_client::config::{Config, FlatConfig, StratumDifficulty, WorkerConfig};
 use chainweb_mining_client::utils::units;
-use criterion::{Criterion, criterion_group, criterion_main, BenchmarkId, Throughput};
-use std::hint::black_box;
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use serde_json;
 use serde_yaml;
+use std::hint::black_box;
 use std::str::FromStr;
 
 fn bench_config_parsing(c: &mut Criterion) {
     let mut group = c.benchmark_group("config_parsing");
-    
+
     // Sample YAML configuration
     let yaml_config = r#"
 node:
@@ -88,51 +88,51 @@ format = "plain"
             black_box(serde_yaml::from_str::<Config>(yaml_config).unwrap());
         });
     });
-    
+
     group.bench_function("parse_json_flat_config", |b| {
         b.iter(|| {
             black_box(serde_json::from_str::<FlatConfig>(json_config).unwrap());
         });
     });
-    
+
     group.bench_function("parse_toml_config", |b| {
         b.iter(|| {
             black_box(toml::from_str::<Config>(toml_config).unwrap());
         });
     });
-    
+
     group.finish();
 }
 
 fn bench_config_serialization(c: &mut Criterion) {
     let mut group = c.benchmark_group("config_serialization");
-    
+
     let config = Config::default();
-    
+
     group.bench_function("serialize_yaml", |b| {
         b.iter(|| {
             black_box(serde_yaml::to_string(&config).unwrap());
         });
     });
-    
+
     group.bench_function("serialize_json", |b| {
         b.iter(|| {
             black_box(serde_json::to_string(&config).unwrap());
         });
     });
-    
+
     group.bench_function("serialize_toml", |b| {
         b.iter(|| {
             black_box(toml::to_string(&config).unwrap());
         });
     });
-    
+
     group.finish();
 }
 
 fn bench_config_validation(c: &mut Criterion) {
     let mut group = c.benchmark_group("config_validation");
-    
+
     let configs = vec![
         ("valid_cpu", {
             let mut config = Config::default();
@@ -161,32 +161,32 @@ fn bench_config_validation(c: &mut Criterion) {
             config
         }),
     ];
-    
+
     for (name, config) in &configs {
-        group.bench_with_input(BenchmarkId::new("validate_config", name), config, |b, config| {
-            b.iter(|| {
-                black_box(config.validate().is_ok());
-            });
-        });
+        group.bench_with_input(
+            BenchmarkId::new("validate_config", name),
+            config,
+            |b, config| {
+                b.iter(|| {
+                    black_box(config.validate().is_ok());
+                });
+            },
+        );
     }
-    
+
     group.finish();
 }
 
 fn bench_unit_parsing_performance(c: &mut Criterion) {
     let mut group = c.benchmark_group("unit_parsing_performance");
     group.throughput(Throughput::Elements(100));
-    
+
     let test_cases = vec![
-        "1000",
-        "1K", "1.5K", "2K", "10K", "100K",
-        "1M", "2.5M", "10M", "100M", "1000M",
-        "1G", "1.5G", "2G", "10G",
-        "1T", "2T",
-        "1Ki", "1Mi", "1Gi", "1Ti",
-        "512Ki", "256Mi", "4Gi", "1024Gi",
+        "1000", "1K", "1.5K", "2K", "10K", "100K", "1M", "2.5M", "10M", "100M", "1000M", "1G",
+        "1.5G", "2G", "10G", "1T", "2T", "1Ki", "1Mi", "1Gi", "1Ti", "512Ki", "256Mi", "4Gi",
+        "1024Gi",
     ];
-    
+
     group.bench_function("parse_various_units", |b| {
         b.iter(|| {
             for case in &test_cases {
@@ -194,7 +194,7 @@ fn bench_unit_parsing_performance(c: &mut Criterion) {
             }
         });
     });
-    
+
     group.bench_function("parse_hash_rates", |b| {
         b.iter(|| {
             for case in &test_cases {
@@ -202,7 +202,7 @@ fn bench_unit_parsing_performance(c: &mut Criterion) {
             }
         });
     });
-    
+
     group.bench_function("parse_memory_sizes", |b| {
         b.iter(|| {
             for case in &test_cases {
@@ -214,19 +214,17 @@ fn bench_unit_parsing_performance(c: &mut Criterion) {
             }
         });
     });
-    
+
     group.finish();
 }
 
 fn bench_stratum_difficulty_parsing(c: &mut Criterion) {
     let mut group = c.benchmark_group("stratum_difficulty_parsing");
-    
+
     let difficulty_strings = vec![
-        "block",
-        "1", "8", "16", "32", "64", "128", "256",
-        "0", "255",
+        "block", "1", "8", "16", "32", "64", "128", "256", "0", "255",
     ];
-    
+
     group.bench_function("parse_stratum_difficulties", |b| {
         b.iter(|| {
             for difficulty_str in &difficulty_strings {
@@ -234,13 +232,13 @@ fn bench_stratum_difficulty_parsing(c: &mut Criterion) {
             }
         });
     });
-    
+
     group.finish();
 }
 
 fn bench_worker_config_creation(c: &mut Criterion) {
     let mut group = c.benchmark_group("worker_config_creation");
-    
+
     group.bench_function("create_cpu_worker", |b| {
         b.iter(|| {
             black_box(WorkerConfig::Cpu {
@@ -249,7 +247,7 @@ fn bench_worker_config_creation(c: &mut Criterion) {
             });
         });
     });
-    
+
     group.bench_function("create_stratum_worker", |b| {
         b.iter(|| {
             black_box(WorkerConfig::Stratum {
@@ -261,7 +259,7 @@ fn bench_worker_config_creation(c: &mut Criterion) {
             });
         });
     });
-    
+
     group.bench_function("create_external_worker", |b| {
         b.iter(|| {
             black_box(WorkerConfig::External {
@@ -272,13 +270,13 @@ fn bench_worker_config_creation(c: &mut Criterion) {
             });
         });
     });
-    
+
     group.finish();
 }
 
 fn bench_config_merging(c: &mut Criterion) {
     let mut group = c.benchmark_group("config_merging");
-    
+
     let base_config = Config::default();
     let override_configs = vec![
         {
@@ -300,7 +298,7 @@ fn bench_config_merging(c: &mut Criterion) {
             config
         },
     ];
-    
+
     group.bench_function("merge_configs", |b| {
         b.iter(|| {
             let mut result = base_config.clone();
@@ -311,7 +309,7 @@ fn bench_config_merging(c: &mut Criterion) {
             black_box(result);
         });
     });
-    
+
     group.finish();
 }
 

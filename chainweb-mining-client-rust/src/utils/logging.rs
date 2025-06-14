@@ -4,10 +4,10 @@
 //! for better debugging and monitoring of mining operations.
 
 use std::collections::HashMap;
-use tracing::{field, span, Level, Span};
+use tracing::{Level, Span, field, span};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::{fmt, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt};
 
 /// Context tags for structured logging
 #[derive(Debug, Clone)]

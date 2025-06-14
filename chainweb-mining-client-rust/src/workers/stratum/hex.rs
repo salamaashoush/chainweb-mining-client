@@ -68,7 +68,7 @@ mod tests {
     #[test]
     fn test_decode_hex_flexible() {
         let data = vec![0xAB, 0xCD];
-        
+
         assert_eq!(decode_hex_flexible("abcd").unwrap(), data);
         assert_eq!(decode_hex_flexible("0xabcd").unwrap(), data);
         assert_eq!(decode_hex_flexible("0Xabcd").unwrap(), data);
@@ -86,7 +86,7 @@ mod tests {
         let empty: Vec<u8> = vec![];
         let encoded = encode_hex(&empty);
         assert_eq!(encoded, "");
-        
+
         let decoded = decode_hex(&encoded).unwrap();
         assert_eq!(decoded, empty);
     }

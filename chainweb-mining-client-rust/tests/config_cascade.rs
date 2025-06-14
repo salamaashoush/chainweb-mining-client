@@ -1,11 +1,11 @@
 //! Configuration cascade and merging tests
-//! 
+//!
 //! Tests the configuration cascade system where multiple config files
 //! can be loaded and merged together with proper precedence rules.
 
 use chainweb_mining_client::config::Config;
-use tempfile::NamedTempFile;
 use std::io::Write;
+use tempfile::NamedTempFile;
 
 #[test]
 fn test_config_cascade_basic_merge() {
@@ -20,7 +20,8 @@ account = "k:base_key"
 logLevel = "info"
 worker = "cpu"
 threadCount = 2"#
-    ).unwrap();
+    )
+    .unwrap();
 
     // Create override config file
     let mut override_file = NamedTempFile::new().unwrap();
@@ -32,11 +33,12 @@ publicKey = "override_key"
 logLevel = "debug"
 worker = "stratum"
 stratumPort = 3333"#
-    ).unwrap();
+    )
+    .unwrap();
 
     // Load base config
     let mut config = Config::from_file(&base_file.path().to_path_buf()).unwrap();
-    
+
     // Verify base config
     assert_eq!(config.node.url, "base.chainweb.com");
     assert!(config.node.use_tls);
@@ -54,7 +56,7 @@ stratumPort = 3333"#
     assert_eq!(config.mining.public_key, "override_key"); // Overridden
     assert_eq!(config.mining.account, "k:override_key"); // Auto-generated from override key
     assert_eq!(config.logging.level, "debug"); // Overridden
-    
+
     // Worker config should be completely replaced
     assert_eq!(config.worker_type().to_string(), "stratum");
 }
@@ -70,7 +72,8 @@ useTls = true
 publicKey = "config1_key"
 account = "k:config1_key"
 logLevel = "error""#
-    ).unwrap();
+    )
+    .unwrap();
 
     let mut config2 = NamedTempFile::new().unwrap();
     writeln!(
@@ -78,7 +81,8 @@ logLevel = "error""#
         r#"node = "config2.chainweb.com"
 publicKey = "config1_key"
 logLevel = "warn""#
-    ).unwrap();
+    )
+    .unwrap();
 
     let mut config3 = NamedTempFile::new().unwrap();
     writeln!(
@@ -87,15 +91,16 @@ logLevel = "warn""#
 publicKey = "config1_key"
 account = "k:config3_account"
 logLevel = "debug""#
-    ).unwrap();
+    )
+    .unwrap();
 
     // Load first config
     let mut final_config = Config::from_file(&config1.path().to_path_buf()).unwrap();
-    
+
     // Apply second config
     let config2_data = Config::from_file(&config2.path().to_path_buf()).unwrap();
     final_config.merge(config2_data);
-    
+
     // Apply third config
     let config3_data = Config::from_file(&config3.path().to_path_buf()).unwrap();
     final_config.merge(config3_data);
@@ -112,7 +117,7 @@ logLevel = "debug""#
 fn test_config_cascade_with_cli_args_simulation() {
     use chainweb_mining_client::config::Args;
     use clap::Parser;
-    
+
     // Create base config file
     let mut base_file = NamedTempFile::new().unwrap();
     writeln!(
@@ -122,16 +127,21 @@ useTls = true
 publicKey = "file_key"
 account = "k:file_key"
 logLevel = "info""#
-    ).unwrap();
+    )
+    .unwrap();
 
     // Simulate CLI args that would override config file
     let args = Args::parse_from([
         "chainweb-mining-client",
-        "--config-file", &base_file.path().to_string_lossy(),
-        "--node", "cli.chainweb.com",
+        "--config-file",
+        &base_file.path().to_string_lossy(),
+        "--node",
+        "cli.chainweb.com",
         "--no-tls",
-        "--public-key", "cli_key",
-        "--log-level", "debug",
+        "--public-key",
+        "cli_key",
+        "--log-level",
+        "debug",
     ]);
 
     // Load config with CLI args
@@ -154,14 +164,16 @@ fn test_config_cascade_default_preservation() {
         r#"node = "test.chainweb.com"
 publicKey = "test_key"
 account = "k:test_key""#
-    ).unwrap();
+    )
+    .unwrap();
 
     let mut config2 = NamedTempFile::new().unwrap();
     writeln!(
         config2,
         r#"publicKey = "test_key"
 insecure = true"#
-    ).unwrap();
+    )
+    .unwrap();
 
     let mut config = Config::from_file(&config1.path().to_path_buf()).unwrap();
     let config2_data = Config::from_file(&config2.path().to_path_buf()).unwrap();
@@ -185,7 +197,8 @@ fn test_config_cascade_empty_values_handling() {
 publicKey = "base_key"
 account = "k:base_key"
 logLevel = "info""#
-    ).unwrap();
+    )
+    .unwrap();
 
     let mut empty_config = NamedTempFile::new().unwrap();
     writeln!(
@@ -194,7 +207,8 @@ logLevel = "info""#
 publicKey = ""
 account = ""
 logLevel = "debug""#
-    ).unwrap();
+    )
+    .unwrap();
 
     let mut config = Config::from_file(&base_config.path().to_path_buf()).unwrap();
     let empty_data = Config::from_file(&empty_config.path().to_path_buf()).unwrap();
@@ -202,11 +216,11 @@ logLevel = "debug""#
 
     // URL should be overridden (not empty)
     assert_eq!(config.node.url, "override.chainweb.com");
-    
+
     // Empty strings should not override non-empty values
     assert_eq!(config.mining.public_key, "base_key"); // Kept from base
     assert_eq!(config.mining.account, "k:base_key"); // Kept from base
-    
+
     // Non-empty values should still override
     assert_eq!(config.logging.level, "debug"); // Overridden
 }
@@ -220,14 +234,16 @@ fn test_config_cascade_optional_fields() {
         r#"node = "test.chainweb.com"
 publicKey = "test_key"
 account = "k:test_key""#
-    ).unwrap();
+    )
+    .unwrap();
 
     let mut config2 = NamedTempFile::new().unwrap();
     writeln!(
         config2,
         r#"node = "override.chainweb.com"
 publicKey = "test_key""#
-    ).unwrap();
+    )
+    .unwrap();
 
     let mut config = Config::from_file(&config1.path().to_path_buf()).unwrap();
     let config2_data = Config::from_file(&config2.path().to_path_buf()).unwrap();
@@ -240,9 +256,9 @@ publicKey = "test_key""#
 #[tokio::test]
 async fn test_config_cascade_with_remote_configs() {
     use mockito::Server;
-    
+
     let mut server = Server::new_async().await;
-    
+
     // Create local base config
     let mut local_config = NamedTempFile::new().unwrap();
     writeln!(
@@ -252,14 +268,15 @@ useTls = true
 publicKey = "local_key"
 account = "k:local_key"
 logLevel = "info""#
-    ).unwrap();
+    )
+    .unwrap();
 
     // Mock remote override config
     let remote_config = r#"node = "remote.chainweb.com"
 publicKey = "local_key"
 useTls = false
 logLevel = "debug""#;
-    
+
     let mock = server
         .mock("GET", "/override.toml")
         .with_status(200)
@@ -269,7 +286,7 @@ logLevel = "debug""#;
 
     // Load local config first
     let mut config = Config::from_file(&local_config.path().to_path_buf()).unwrap();
-    
+
     // Load and merge remote config
     let remote_url = format!("{}/override.toml", server.url());
     let remote_config_data = Config::from_url_async(&remote_url).await.unwrap();
@@ -296,7 +313,8 @@ publicKey = "valid_key"
 account = "k:valid_key"
 worker = "stratum"
 stratumPort = 3333"#
-    ).unwrap();
+    )
+    .unwrap();
 
     let mut invalid_override = NamedTempFile::new().unwrap();
     writeln!(
@@ -304,7 +322,8 @@ stratumPort = 3333"#
         r#"publicKey = "valid_key"
 worker = "stratum"
 stratumPort = 0"#
-    ).unwrap();
+    )
+    .unwrap();
 
     let config = Config::from_file(&valid_base.path().to_path_buf()).unwrap();
     assert!(config.validate().is_ok()); // Base config is valid

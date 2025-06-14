@@ -2,7 +2,7 @@
 
 use crate::core::{ChainId, Target, Work};
 use crate::error::{Error, Result};
-use crate::protocol::http_pool::{get_mining_client, get_insecure_client};
+use crate::protocol::http_pool::{get_insecure_client, get_mining_client};
 use crate::protocol::retry::retry_http;
 use eventsource_stream::Eventsource;
 use futures::StreamExt;
@@ -75,9 +75,16 @@ impl ChainwebClient {
             get_mining_client()?
         };
 
-        info!("Created Chainweb client using HTTP connection pool (insecure: {})", config.insecure);
+        info!(
+            "Created Chainweb client using HTTP connection pool (insecure: {})",
+            config.insecure
+        );
 
-        Ok(Self { config, client, node_version: None })
+        Ok(Self {
+            config,
+            client,
+            node_version: None,
+        })
     }
 
     /// Set the node version (should be called after get_node_info)
@@ -168,10 +175,7 @@ impl ChainwebClient {
                      For development nodes, ensure DISABLE_POW_VALIDATION=1 is set."
                 )));
             }
-            return Err(Error::protocol(format!(
-                "Work request failed: {}",
-                status
-            )));
+            return Err(Error::protocol(format!("Work request failed: {}", status)));
         }
 
         // The response is raw binary data: 4 bytes ChainId + 32 bytes Target + 286 bytes Work
@@ -191,10 +195,14 @@ impl ChainwebClient {
         // First 4 bytes: ChainId (little-endian)
         let chain_id_bytes: [u8; 4] = response_bytes[0..4].try_into().unwrap();
         let chain_id = u32::from_le_bytes(chain_id_bytes);
-        
+
         // Verify the chain ID matches what we expect
         if chain_id != self.config.chain_id.value() as u32 {
-            debug!("Received work for chain {}, expected {}", chain_id, self.config.chain_id.value());
+            debug!(
+                "Received work for chain {}, expected {}",
+                chain_id,
+                self.config.chain_id.value()
+            );
         }
 
         // Next 32 bytes: Target (little-endian, 256-bit)
@@ -203,7 +211,10 @@ impl ChainwebClient {
         // Remaining 286 bytes: Work header
         let work = Work::from_slice(&response_bytes[36..])?;
 
-        debug!("Received work for chain {} with target: {}", chain_id, target);
+        debug!(
+            "Received work for chain {} with target: {}",
+            chain_id, target
+        );
 
         Ok((work, target))
     }
@@ -215,7 +226,11 @@ impl ChainwebClient {
 
     /// Submit a solution to the node (single attempt)
     async fn submit_solution_once(&self, work: &Work) -> Result<()> {
-        let url = format!("{}/chainweb/0.0/{}/mining/solved", self.base_url(), self.node_version());
+        let url = format!(
+            "{}/chainweb/0.0/{}/mining/solved",
+            self.base_url(),
+            self.node_version()
+        );
 
         debug!("Submitting solution to: {}", url);
 
@@ -245,7 +260,11 @@ impl ChainwebClient {
 
     /// Subscribe to work updates via Server-Sent Events
     pub async fn subscribe_updates(&self) -> Result<impl futures::Stream<Item = Result<()>>> {
-        let url = format!("{}/chainweb/0.0/{}/mining/updates", self.base_url(), self.node_version());
+        let url = format!(
+            "{}/chainweb/0.0/{}/mining/updates",
+            self.base_url(),
+            self.node_version()
+        );
 
         debug!("Subscribing to updates at: {}", url);
 
@@ -372,10 +391,10 @@ mod tests {
         };
 
         let mut client = ChainwebClient::new(config).unwrap();
-        
+
         // Test default version
         assert_eq!(client.node_version(), "mainnet01");
-        
+
         // Test setting custom version
         client.set_node_version("testnet04".to_string());
         assert_eq!(client.node_version(), "testnet04");

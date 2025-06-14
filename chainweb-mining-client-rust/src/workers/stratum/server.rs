@@ -18,9 +18,9 @@ use tokio::sync::{RwLock, broadcast, mpsc};
 use tokio::time::interval;
 use tracing::{error, info, warn};
 
+use super::nonce::{Nonce1, Nonce2, NonceSize, compose_nonce};
 use super::protocol::*;
 use super::session::*;
-use super::nonce::{Nonce1, Nonce2, NonceSize, compose_nonce};
 
 /// Stratum server configuration
 #[derive(Debug, Clone)]
@@ -188,7 +188,6 @@ impl StratumServer {
         // Broadcast to all clients
         let _ = self.job_tx.send(job);
     }
-
 }
 
 /// Handle a client connection
@@ -410,12 +409,12 @@ async fn handle_request(
 
             // Create a modified work with the composed nonce
             let mut work_bytes = job.work.as_bytes().to_vec();
-            
+
             // The nonce should be at offset 278 in the work (286 - 8)
             if work_bytes.len() >= 286 {
                 // Update the nonce in the work
                 work_bytes[278..286].copy_from_slice(&submitted_nonce.to_le_bytes());
-                
+
                 // Create new work from the modified bytes
                 let mut work_array = [0u8; 286];
                 work_array.copy_from_slice(&work_bytes[..286]);
@@ -434,24 +433,24 @@ async fn handle_request(
 
                     if tx.send(result).await.is_ok() {
                         session.shares_valid += 1;
-                        
+
                         // Record share accepted in monitoring
                         global_monitoring().record_share_submitted(true);
-                        
+
                         StratumResponse::success(req.id, Value::Bool(true))
                     } else {
                         // Record share rejected in monitoring
                         global_monitoring().record_share_submitted(false);
-                        
+
                         StratumResponse::error(req.id, 20, "Failed to submit share")
                     }
                 } else {
                     // No result channel, just accept the share
                     session.shares_valid += 1;
-                    
+
                     // Record share accepted in monitoring
                     global_monitoring().record_share_submitted(true);
-                    
+
                     StratumResponse::success(req.id, Value::Bool(true))
                 }
             } else {

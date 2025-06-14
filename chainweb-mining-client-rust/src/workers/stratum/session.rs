@@ -1,7 +1,7 @@
 //! Stratum session management
 
-use uuid::Uuid;
 use super::nonce::Nonce1;
+use uuid::Uuid;
 
 /// Session ID type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

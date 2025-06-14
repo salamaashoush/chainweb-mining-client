@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// Represents a 64-bit nonce used in mining
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, Default,
+)]
 #[serde(transparent)]
 pub struct Nonce(pub u64);
 
@@ -23,7 +25,7 @@ impl Nonce {
     pub fn increment(&mut self) {
         self.0 = self.0.wrapping_add(1);
     }
-    
+
     /// Increment the nonce by 1 and return the result
     pub fn incremented(self) -> Self {
         Self(self.0.wrapping_add(1))

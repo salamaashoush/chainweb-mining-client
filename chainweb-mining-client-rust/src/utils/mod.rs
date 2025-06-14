@@ -5,7 +5,10 @@ pub mod monitoring;
 pub mod units;
 
 pub use logging::{LogContext, MiningMetrics, init_structured_logging};
-pub use monitoring::{MonitoringSystem, PerformanceMetrics, HealthStatus, AlertConfig, global_monitoring, init_monitoring_with_pool};
+pub use monitoring::{
+    AlertConfig, HealthStatus, MonitoringSystem, PerformanceMetrics, global_monitoring,
+    init_monitoring_with_pool,
+};
 
 use tracing_subscriber::EnvFilter;
 
@@ -30,7 +33,6 @@ pub fn init_logging(level: &str, format: &str) {
     }
 }
 
-
 /// Format hashrate for display
 pub fn format_hashrate(hashrate: u64) -> String {
     if hashrate >= 1_000_000_000_000 {
@@ -46,11 +48,9 @@ pub fn format_hashrate(hashrate: u64) -> String {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
 
     #[test]
     fn test_format_hashrate() {
@@ -60,5 +60,4 @@ mod tests {
         assert_eq!(format_hashrate(3_500_000_000), "3.50 GH/s");
         assert_eq!(format_hashrate(4_500_000_000_000), "4.50 TH/s");
     }
-
 }
