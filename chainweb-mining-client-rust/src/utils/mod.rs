@@ -1,6 +1,9 @@
 //! Utility functions and helpers
 
+pub mod logging;
 pub mod units;
+
+pub use logging::{LogContext, MiningMetrics, init_structured_logging};
 
 use tracing_subscriber::EnvFilter;
 

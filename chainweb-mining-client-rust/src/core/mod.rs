@@ -7,12 +7,14 @@ mod chain_id;
 mod nonce;
 mod preemption;
 mod target;
+mod target_arithmetic;
 mod work;
 
 pub use chain_id::ChainId;
 pub use nonce::Nonce;
 pub use preemption::{WorkPreemptor, PreemptionConfig, PreemptionStrategy, PreemptionStats, PreemptionDecision, PreemptionAction};
 pub use target::Target;
+pub use target_arithmetic::{TargetWords, Level, TargetArithmetic};
 pub use work::Work;
 
 /// Constants for the mining protocol
