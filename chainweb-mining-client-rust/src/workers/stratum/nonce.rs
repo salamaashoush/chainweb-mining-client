@@ -110,6 +110,11 @@ impl Nonce1 {
         
         Self::new(size, value)
     }
+
+    /// Get the Nonce2 size that complements this Nonce1
+    pub fn nonce2_size(&self) -> NonceSize {
+        self.size.complement()
+    }
 }
 
 /// Miner-controlled nonce (least significant bytes)
@@ -165,6 +170,24 @@ impl Nonce2 {
         } else {
             false // Overflow
         }
+    }
+
+    /// Create from bytes (big-endian)
+    pub fn from_bytes(size: NonceSize, bytes: &[u8]) -> Result<Self> {
+        if bytes.len() != size.as_bytes() as usize {
+            return Err(Error::config(format!(
+                "Invalid byte length for Nonce2: expected {}, got {}",
+                size.as_bytes(),
+                bytes.len()
+            )));
+        }
+
+        let mut value = 0u64;
+        for &byte in bytes.iter() {
+            value = (value << 8) | (byte as u64);
+        }
+
+        Self::new(size, value)
     }
 }
 

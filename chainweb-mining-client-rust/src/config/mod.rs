@@ -95,7 +95,7 @@ pub struct Args {
     #[clap(
         short = 'r',
         long = "hash-rate",
-        help = "hashes per second (only relevant for mining simulation, ignored by the cpu worker)"
+        help = "hashes per second (only relevant for mining simulation, ignored by the cpu worker). Supports unit prefixes: K/M/G/T/P/E/Z/Y (SI) and Ki/Mi/Gi/Ti/Pi/Ei/Zi/Yi (binary). Example: 1M, 2.5G, 100Ki"
     )]
     pub hash_rate: Option<String>,
 
@@ -571,10 +571,6 @@ fn default_log_format() -> String {
     "plain".to_string()
 }
 
-/// Parse hash rate with unit prefixes (e.g., "1M", "100K", "1.5G", "2Ki", "3Mi")
-fn parse_hash_rate(s: &str) -> Result<f64> {
-    units::parse_hash_rate(s)
-}
 
 impl Config {
     /// Load configuration from file or URL
@@ -890,7 +886,7 @@ impl Config {
                 let hash_rate = args
                     .hash_rate
                     .as_deref()
-                    .map(parse_hash_rate)
+                    .map(units::parse_hash_rate)
                     .transpose()?
                     .unwrap_or(1_000_000.0);
                 WorkerConfig::Simulation { hash_rate }

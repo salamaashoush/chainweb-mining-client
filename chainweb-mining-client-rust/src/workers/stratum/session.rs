@@ -1,6 +1,7 @@
 //! Stratum session management
 
 use uuid::Uuid;
+use super::nonce::Nonce1;
 
 /// Session ID type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -34,7 +35,7 @@ pub struct StratumSession {
     /// Current difficulty
     pub difficulty: f64,
     /// Extra nonce 1
-    pub extranonce1: Vec<u8>,
+    pub extranonce1: Nonce1,
     /// Total shares submitted
     pub shares_submitted: u64,
     /// Valid shares
@@ -43,7 +44,7 @@ pub struct StratumSession {
 
 impl StratumSession {
     /// Create a new session
-    pub fn new(extranonce1: Vec<u8>, initial_difficulty: f64) -> Self {
+    pub fn new(extranonce1: Nonce1, initial_difficulty: f64) -> Self {
         Self {
             id: SessionId::new(),
             worker_name: None,

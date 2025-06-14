@@ -1,7 +1,7 @@
 //! Stratum server implementation
 
 use crate::config::StratumDifficulty;
-use crate::core::{Target, Work};
+use crate::core::{Nonce, Target, Work};
 use crate::error::{Error, Result};
 use crate::workers::{MiningResult, Worker};
 use async_trait::async_trait;
@@ -19,6 +19,7 @@ use tracing::{error, info, warn};
 
 use super::protocol::*;
 use super::session::*;
+use super::nonce::{Nonce1, Nonce2, NonceSize, compose_nonce};
 
 /// Stratum server configuration
 #[derive(Debug, Clone)]
@@ -58,6 +59,8 @@ struct ServerState {
     total_hashrate: AtomicU64,
     /// Shutdown flag
     shutdown: AtomicBool,
+    /// Result channel for submitted shares
+    result_tx: RwLock<Option<mpsc::Sender<MiningResult>>>,
 }
 
 /// Stratum server for ASIC miners
@@ -86,6 +89,7 @@ impl StratumServer {
                 job_counter: AtomicU64::new(0),
                 total_hashrate: AtomicU64::new(0),
                 shutdown: AtomicBool::new(false),
+                result_tx: RwLock::new(None),
             }),
             job_tx,
             result_tx: None,
@@ -234,6 +238,7 @@ async fn handle_client(
                                     &mut subscribed,
                                     &session,
                                     &extranonce1,
+                                    &state,
                                 ).await;
 
                                 let json = serde_json::to_string(&response)? + "\n";
@@ -280,7 +285,8 @@ async fn handle_request(
     authorized: &mut bool,
     subscribed: &mut bool,
     session: &Arc<RwLock<StratumSession>>,
-    extranonce1: &[u8],
+    extranonce1: &Nonce1,
+    state: &Arc<ServerState>,
 ) -> StratumResponse {
     match req.method_enum() {
         StratumMethod::Subscribe => {
@@ -294,8 +300,8 @@ async fn handle_request(
                     Value::String("mining.notify".to_string()),
                     Value::String(subscription_id),
                 ])]),
-                Value::String(hex::encode(extranonce1)),
-                Value::Number(4.into()), // extranonce2 size
+                Value::String(extranonce1.to_hex()),
+                Value::Number(extranonce1.nonce2_size().as_bytes().into()), // extranonce2 size
             ]);
 
             StratumResponse::success(req.id, result)
@@ -324,13 +330,119 @@ async fn handle_request(
                 return StratumResponse::error(req.id, 24, "Unauthorized worker");
             }
 
-            // TODO: Validate and process share submission
+            // Parse submit parameters
+            if req.params.len() < 5 {
+                return StratumResponse::error(req.id, 20, "Missing parameters");
+            }
+
+            let params = &req.params;
+            let _username = match params[0].as_str() {
+                Some(u) => u,
+                None => return StratumResponse::error(req.id, 20, "Invalid username"),
+            };
+            let job_id = match params[1].as_str() {
+                Some(j) => j,
+                None => return StratumResponse::error(req.id, 20, "Invalid job_id"),
+            };
+            let extranonce2_hex = match params[2].as_str() {
+                Some(e) => e,
+                None => return StratumResponse::error(req.id, 20, "Invalid extranonce2"),
+            };
+            let _ntime = match params[3].as_str() {
+                Some(n) => n,
+                None => return StratumResponse::error(req.id, 20, "Invalid ntime"),
+            };
+            let nonce_hex = match params[4].as_str() {
+                Some(n) => n,
+                None => return StratumResponse::error(req.id, 20, "Invalid nonce"),
+            };
+
+            // Update share statistics
             let mut session = session.write().await;
             session.shares_submitted += 1;
 
-            // For now, accept all shares
-            session.shares_valid += 1;
-            StratumResponse::success(req.id, Value::Bool(true))
+            // Get the current job
+            let current_job = state.current_job.read().await;
+            let job = match &*current_job {
+                Some(j) if j.id == job_id => j.clone(),
+                _ => {
+                    drop(current_job);
+                    return StratumResponse::error(req.id, 21, "Job not found");
+                }
+            };
+            drop(current_job);
+
+            // Parse extranonce2
+            let extranonce2_bytes = match hex::decode(extranonce2_hex) {
+                Ok(b) => b,
+                Err(_) => return StratumResponse::error(req.id, 20, "Invalid extranonce2 hex"),
+            };
+
+            if extranonce2_bytes.len() != extranonce1.nonce2_size().as_bytes() as usize {
+                return StratumResponse::error(req.id, 20, "Invalid extranonce2 size");
+            }
+
+            // Create Nonce2
+            let nonce2_size = extranonce1.nonce2_size();
+            let nonce2 = match Nonce2::from_bytes(nonce2_size, &extranonce2_bytes) {
+                Ok(n) => n,
+                Err(_) => return StratumResponse::error(req.id, 20, "Invalid extranonce2 format"),
+            };
+
+            // Compose the full nonce
+            let _full_nonce = match compose_nonce(extranonce1.clone(), nonce2) {
+                Ok(n) => n,
+                Err(_) => return StratumResponse::error(req.id, 20, "Failed to compose nonce"),
+            };
+
+            // Parse the submitted nonce
+            let submitted_nonce = match hex::decode(nonce_hex) {
+                Ok(b) if b.len() == 8 => {
+                    let mut arr = [0u8; 8];
+                    arr.copy_from_slice(&b);
+                    u64::from_le_bytes(arr)
+                }
+                _ => return StratumResponse::error(req.id, 20, "Invalid nonce hex"),
+            };
+
+            // Create a modified work with the composed nonce
+            let mut work_bytes = job.work.as_bytes().to_vec();
+            
+            // The nonce should be at offset 278 in the work (286 - 8)
+            if work_bytes.len() >= 286 {
+                // Update the nonce in the work
+                work_bytes[278..286].copy_from_slice(&submitted_nonce.to_le_bytes());
+                
+                // Create new work from the modified bytes
+                let mut work_array = [0u8; 286];
+                work_array.copy_from_slice(&work_bytes[..286]);
+                let modified_work = Work::from_bytes(work_array);
+
+                // Compute the hash for the modified work
+                let hash = modified_work.hash();
+
+                // Submit the result if we have a channel
+                if let Some(ref tx) = *state.result_tx.read().await {
+                    let result = MiningResult {
+                        work: modified_work,
+                        nonce: Nonce::new(submitted_nonce),
+                        hash,
+                    };
+
+                    if tx.send(result).await.is_ok() {
+                        session.shares_valid += 1;
+                        StratumResponse::success(req.id, Value::Bool(true))
+                    } else {
+                        StratumResponse::error(req.id, 20, "Failed to submit share")
+                    }
+                } else {
+                    // No result channel, just accept the share
+                    session.shares_valid += 1;
+                    StratumResponse::success(req.id, Value::Bool(true))
+                }
+            } else {
+                StratumResponse::error(req.id, 20, "Invalid work size")
+            }
         }
 
         _ => StratumResponse::error(req.id, 20, "Method not supported"),
@@ -338,10 +450,12 @@ async fn handle_request(
 }
 
 /// Generate extranonce1 for a new session
-fn generate_extranonce1() -> Vec<u8> {
-    let mut bytes = vec![0u8; 4];
+fn generate_extranonce1() -> Nonce1 {
+    let mut bytes = [0u8; 4];
     getrandom::fill(&mut bytes).unwrap();
-    bytes
+    // Convert bytes to u64 (big-endian)
+    let value = u32::from_be_bytes(bytes) as u64;
+    Nonce1::new(NonceSize::new(4).unwrap(), value).unwrap()
 }
 
 /// Create job parameters for mining.notify
@@ -375,6 +489,12 @@ impl Worker for StratumServer {
         target: Target,
         result_tx: mpsc::Sender<MiningResult>,
     ) -> Result<()> {
+        // Store result channel in state
+        {
+            let mut tx = self.state.result_tx.write().await;
+            *tx = Some(result_tx.clone());
+        }
+
         // Store result channel
         let server = Self {
             config: self.config.clone(),
