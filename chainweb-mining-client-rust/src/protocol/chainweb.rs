@@ -2,11 +2,13 @@
 
 use crate::core::{ChainId, Target, Work};
 use crate::error::{Error, Result};
+use crate::protocol::http_pool::{get_mining_client, get_insecure_client};
 use crate::protocol::retry::{retry_http, retry_critical};
 use eventsource_stream::Eventsource;
 use futures::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info};
 
@@ -33,7 +35,7 @@ pub struct ChainwebClientConfig {
 #[derive(Clone)]
 pub struct ChainwebClient {
     config: ChainwebClientConfig,
-    client: Client,
+    client: Arc<Client>,
     node_version: Option<String>,
 }
 
@@ -64,21 +66,16 @@ pub struct NodeInfo {
 }
 
 impl ChainwebClient {
-    /// Create a new Chainweb client
+    /// Create a new Chainweb client using the HTTP connection pool
     pub fn new(config: ChainwebClientConfig) -> Result<Self> {
-        let mut client_builder = Client::builder().timeout(config.timeout);
+        // Use the appropriate client from the HTTP pool
+        let client = if config.insecure {
+            get_insecure_client()?
+        } else {
+            get_mining_client()?
+        };
 
-        // Configure TLS settings
-        if config.insecure {
-            // Allow self-signed certificates
-            client_builder = client_builder
-                .danger_accept_invalid_certs(true)
-                .danger_accept_invalid_hostnames(true);
-        }
-
-        let client = client_builder
-            .build()
-            .map_err(|e| Error::network(format!("Failed to create HTTP client: {}", e)))?;
+        info!("Created Chainweb client using HTTP connection pool (insecure: {})", config.insecure);
 
         Ok(Self { config, client, node_version: None })
     }

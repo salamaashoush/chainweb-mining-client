@@ -5,11 +5,13 @@
 
 mod chain_id;
 mod nonce;
+mod preemption;
 mod target;
 mod work;
 
 pub use chain_id::ChainId;
 pub use nonce::Nonce;
+pub use preemption::{WorkPreemptor, PreemptionConfig, PreemptionStrategy, PreemptionStats, PreemptionDecision, PreemptionAction};
 pub use target::Target;
 pub use work::Work;
 
@@ -47,3 +49,6 @@ mod tests {
 
 #[cfg(test)]
 mod tests_extended;
+
+#[cfg(test)]
+mod tests_property_simple;

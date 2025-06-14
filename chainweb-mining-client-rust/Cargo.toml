@@ -52,6 +52,8 @@ futures = "0.3"
 uuid = { version = "1.10", features = ["v4", "serde"] }
 async-trait = "0.1"
 getrandom = "0.3"
+num-bigint = "0.4"
+num-traits = "0.2"
 
 # SSE support
 eventsource-stream = "0.2"

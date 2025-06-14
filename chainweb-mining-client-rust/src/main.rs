@@ -4,7 +4,7 @@
 
 use chainweb_mining_client::{
     config::{Args, Config, WorkerConfig},
-    core::ChainId,
+    core::{ChainId, WorkPreemptor, PreemptionConfig, PreemptionStrategy, PreemptionDecision, PreemptionAction},
     error::Result,
     protocol::chainweb::{ChainwebClient, ChainwebClientConfig},
     utils,
@@ -247,6 +247,15 @@ async fn main() -> Result<()> {
 
     info!("Using {} worker", worker.worker_type());
 
+    // Create work preemptor with default configuration
+    let preemption_config = PreemptionConfig {
+        strategy: PreemptionStrategy::Immediate,
+        min_preemption_interval: Duration::from_millis(100),
+        max_work_fetch_time: Duration::from_secs(5),
+        validate_work_change: true,
+    };
+    let preemptor = WorkPreemptor::new(preemption_config);
+
     // Create channel for mining results
     let (result_tx, mut result_rx) = mpsc::channel(10);
 
@@ -298,17 +307,44 @@ async fn main() -> Result<()> {
                     Ok(_) => {
                         info!("Received work update");
 
-                        // Stop current mining
-                        worker.stop().await?;
-
-                        // Get new work
+                        // Get new work first
                         match client.get_work().await {
-                            Ok((work, target)) => {
-                                current_work = work;
-                                current_target = target;
-
-                                // Start mining with new work
-                                worker.mine(current_work.clone(), current_target, result_tx.clone()).await?;
+                            Ok((new_work, new_target)) => {
+                                // Use preemptor to decide if and how to preempt
+                                let decision = preemptor.should_preempt(&new_work, &current_work);
+                                
+                                match decision {
+                                    PreemptionDecision::Preempt(action) => {
+                                        info!("Preempting current work with action: {:?}", action);
+                                        
+                                        // Execute preemption using the sophisticated logic
+                                        let worker_clone = worker.clone();
+                                        let result_tx_clone = result_tx.clone();
+                                        let client_clone = client.clone();
+                                        
+                                        if let Err(e) = preemptor.execute_preemption(
+                                            action,
+                                            worker_clone,
+                                            new_work.clone(),
+                                            new_target,
+                                            result_tx_clone,
+                                            move || async move {
+                                                // This closure can be used for re-fetching work if needed
+                                                client_clone.get_work().await
+                                            }
+                                        ).await {
+                                            error!("Failed to execute preemption: {}", e);
+                                        } else {
+                                            // Update current work/target if preemption succeeded
+                                            current_work = new_work;
+                                            current_target = new_target;
+                                        }
+                                    }
+                                    PreemptionDecision::Skip(reason) => {
+                                        info!("Skipping work preemption: {:?}", reason);
+                                        // Continue with current work
+                                    }
+                                }
                             }
                             Err(e) => {
                                 error!("Failed to get updated work: {}", e);
@@ -343,6 +379,18 @@ async fn main() -> Result<()> {
         let hashrate = worker.hashrate().await;
         if hashrate > 0 {
             info!("Current hashrate: {}", utils::format_hashrate(hashrate));
+        }
+
+        // Print preemption statistics periodically
+        let stats = preemptor.get_stats();
+        if stats.total_preemptions > 0 {
+            info!(
+                "Preemption stats: {} total, {} skipped, avg work fetch: {:.1}ms, avg restart: {:.1}ms",
+                stats.total_preemptions,
+                stats.skipped_preemptions,
+                stats.avg_work_fetch_time_ms,
+                stats.avg_restart_time_ms
+            );
         }
     }
 

@@ -1,6 +1,7 @@
 //! Configuration management for the mining client
 
 use crate::error::{Error, Result};
+use crate::protocol::http_pool::get_config_client;
 use crate::utils::units;
 use crate::workers::WorkerType;
 use clap::Parser;
@@ -377,7 +378,7 @@ pub struct MiningConfig {
 
 impl MiningConfig {
     /// Merge another mining config into this one
-    fn merge(&mut self, other: MiningConfig) {
+    pub fn merge(&mut self, other: MiningConfig) {
         // Account and public key should generally override (unless empty)
         if !other.account.is_empty() {
             self.account = other.account;
@@ -486,7 +487,7 @@ pub struct LoggingConfig {
 
 impl LoggingConfig {
     /// Merge another logging config into this one
-    fn merge(&mut self, other: LoggingConfig) {
+   pub fn merge(&mut self, other: LoggingConfig) {
         // Log level: use other if it's not the default
         if other.level != default_log_level() {
             self.level = other.level;
@@ -593,10 +594,8 @@ impl Config {
 
     /// Load configuration from URL asynchronously
     pub async fn from_url_async(url: &str) -> Result<Self> {
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .build()
-            .map_err(|e| Error::config(format!("Failed to create HTTP client: {}", e)))?;
+        let client = get_config_client()
+            .map_err(|e| Error::config(format!("Failed to get HTTP client: {}", e)))?;
 
         let response = client
             .get(url)
