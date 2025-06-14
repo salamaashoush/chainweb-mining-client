@@ -89,8 +89,14 @@ impl RetryPolicy {
 }
 
 /// Determine if an error should trigger a retry
-/// Based on Haskell implementation's httpRetries function
+/// Based on Haskell implementation's httpRetries function and enhanced with granular error analysis
 pub fn should_retry(error: &Error) -> bool {
+    // Use the built-in error analysis method
+    if error.should_retry() {
+        return true;
+    }
+
+    // Additional logic for compatibility with existing behavior
     let error_msg = error.to_string();
     let lower_msg = error_msg.to_lowercase();
 
@@ -116,7 +122,7 @@ pub fn should_retry(error: &Error) -> bool {
                 || lower_msg.contains("gateway timeout")
                 || lower_msg.contains("bad gateway")
         }
-        Error::Timeout(_) => {
+        Error::Timeout { .. } => {
             // Retry on timeout errors
             true
         }
@@ -126,19 +132,25 @@ pub fn should_retry(error: &Error) -> bool {
                 || lower_msg.contains("connection")
                 || lower_msg.contains("broken pipe")
         }
-        Error::ChannelSend(_) | Error::ChannelRecv(_) => {
-            // Don't retry on channel errors (usually unrecoverable)
+        Error::Http(_) => {
+            // Retry on HTTP client errors that might be transient
+            lower_msg.contains("timeout")
+                || lower_msg.contains("connection")
+                || lower_msg.contains("server error")
+        }
+        Error::Communication(_) => {
+            // Don't retry on communication errors (usually unrecoverable)
             false
         }
-        Error::InvalidWork(_) | Error::InvalidTarget(_) | Error::Config(_) | Error::Json(_) => {
+        Error::Validation(_) | Error::Config(_) | Error::Json(_) | Error::Yaml(_) => {
             // Don't retry on validation or configuration errors
             false
         }
-        Error::Worker(_) | Error::Stratum(_) | Error::ExternalProcess(_) => {
+        Error::Worker(_) | Error::Stratum(_) | Error::ExternalProcess { .. } => {
             // Don't retry on worker-specific errors
             false
         }
-        Error::Other(_) => {
+        Error::Other { .. } => {
             // Retry on generic errors that might be transient (including network errors created via Error::network)
             lower_msg.contains("timeout")
                 || lower_msg.contains("connection")
