@@ -1,9 +1,13 @@
 //! Stratum protocol server implementation for ASIC miners
 
+mod job;
+mod nonce;
 mod protocol;
 mod server;
 mod session;
 
+pub use job::{ClientWorker, JobId, JobManager, MiningJob, SharedJobManager};
+pub use nonce::{Nonce1, Nonce2, NonceSize, compose_nonce, split_nonce};
 pub use protocol::{
     StratumMessage, StratumMethod, StratumNotification, StratumRequest, StratumResponse,
 };
