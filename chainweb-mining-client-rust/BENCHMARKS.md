@@ -267,6 +267,7 @@ Benchmark results are highly dependent on hardware:
 - **Storage**: Config parsing may be I/O limited for large files
 
 For consistent results:
+
 - Run on dedicated hardware
 - Disable CPU frequency scaling
 - Close unnecessary applications
@@ -275,6 +276,7 @@ For consistent results:
 ## Benchmark Data
 
 All benchmark results are stored in `target/criterion/` with:
+
 - Raw timing data
 - Statistical analysis
 - HTML reports with graphs

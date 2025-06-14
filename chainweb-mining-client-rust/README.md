@@ -213,6 +213,80 @@ just test-stratum         # Full integration test with expect script
 just test-stratum-unit    # Unit tests for protocol compatibility
 ```
 
+### Using Cargo Make
+
+This project uses `cargo-make` for task automation, providing a shell-script-free development experience with better cross-platform support and maintainability.
+
+#### Quick Start
+
+```bash
+# Install cargo-make (one-time setup)
+cargo install cargo-make
+
+# Show available tasks
+cargo make
+
+# Complete development setup
+cargo make dev-setup         # Install tools and dependencies
+```
+
+#### Daily Development
+
+```bash
+cargo make dev               # Format, lint, build, and test
+cargo make build             # Build release version
+cargo make test              # Run all tests
+cargo make clean             # Clean artifacts and logs
+```
+
+#### Testing & Validation
+
+```bash
+# Comprehensive testing
+cargo make stress-test       # Run full stress test suite
+cargo make ci               # Run CI checks
+
+# Individual worker testing
+cargo make stress-test-cpu              # CPU worker stress test
+cargo make stress-test-constant-delay   # Constant-delay worker test
+cargo make stress-test-stratum          # Stratum server test
+cargo make stress-test-simulation       # Simulation worker test
+```
+
+#### Node Management
+
+```bash
+cargo make start-node-dev    # Start development node (POW disabled)
+cargo make start-node-prod   # Start production-like node
+cargo make node-status       # Check node status
+cargo make node-logs         # View node logs
+cargo make stop-node         # Stop running node
+```
+
+#### Advanced Features
+
+```bash
+# Docker support
+cargo make docker-build      # Build Docker images
+cargo make docker-test       # Test Docker images
+
+# Benchmarking
+cargo make bench-all         # Run comprehensive benchmarks
+cargo make bench-quick       # Quick benchmarks
+
+# Compatibility testing
+cargo make test-compat       # Test against Haskell implementation
+```
+
+**Key Benefits:**
+- ✅ **Cross-platform**: Works on Windows, macOS, and Linux
+- ✅ **No shell scripts**: Pure Rust-based task automation
+- ✅ **Self-documenting**: All tasks include descriptions
+- ✅ **Dependency management**: Automatic tool installation
+- ✅ **Environment support**: Customizable via environment variables
+
+See [CARGO_MAKE_GUIDE.md](CARGO_MAKE_GUIDE.md) for complete documentation.
+
 ### Code Quality Standards
 
 This project maintains zero compiler warnings and follows strict quality standards:

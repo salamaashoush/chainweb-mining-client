@@ -410,10 +410,11 @@ async fn handle_request(
             // Create a modified work with the composed nonce
             let mut work_bytes = job.work.as_bytes().to_vec();
 
-            // The nonce should be at offset 278 in the work (286 - 8)
-            if work_bytes.len() >= 286 {
+            // The nonce should be at the correct offset in the work
+            if work_bytes.len() >= crate::core::constants::WORK_SIZE {
                 // Update the nonce in the work
-                work_bytes[278..286].copy_from_slice(&submitted_nonce.to_le_bytes());
+                work_bytes[crate::core::constants::NONCE_OFFSET..]
+                    .copy_from_slice(&submitted_nonce.to_le_bytes());
 
                 // Create new work from the modified bytes
                 let mut work_array = [0u8; 286];

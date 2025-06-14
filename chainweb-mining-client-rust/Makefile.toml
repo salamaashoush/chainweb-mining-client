@@ -1,0 +1,582 @@
+[config]
+# Configuration for cargo-make
+# This file defines tasks that can be run with 'cargo make <task>'
+skip_core_tasks = true
+default_to_workspace = false
+
+[env]
+# Environment variables available to all tasks
+RUST_LOG = { value = "info", condition = { env_not_set = ["RUST_LOG"] } }
+NODE_ENDPOINT = { value = "http://localhost:1848", condition = { env_not_set = ["NODE_ENDPOINT"] } }
+NODE_TYPE = { value = "dev", condition = { env_not_set = ["NODE_TYPE"] } }
+PUBLIC_KEY = { value = "f89ef46927f506c70b6a58fd322450a936311dc6ac91f4ec3d8ef949608dbf1f", condition = { env_not_set = ["PUBLIC_KEY"] } }
+ACCOUNT = { value = "k:f89ef46927f506c70b6a58fd322450a936311dc6ac91f4ec3d8ef949608dbf1f", condition = { env_not_set = ["ACCOUNT"] } }
+TEST_DURATION = { value = "60", condition = { env_not_set = ["TEST_DURATION"] } }
+WORKER_COUNT = { value = "4", condition = { env_not_set = ["WORKER_COUNT"] } }
+
+# ==============================
+# Build Tasks
+# ==============================
+
+[tasks.build]
+description = "Build the project in release mode"
+command = "cargo"
+args = ["build", "--release"]
+
+[tasks.build-debug]
+description = "Build the project in debug mode"
+command = "cargo"
+args = ["build"]
+
+# ==============================
+# Test Tasks
+# ==============================
+
+[tasks.test]
+description = "Run all tests"
+command = "cargo"
+args = ["test"]
+
+[tasks.test-unit]
+description = "Run unit tests only"
+command = "cargo"
+args = ["test", "--lib"]
+
+[tasks.test-integration]
+description = "Run integration tests only"
+command = "cargo"
+args = ["test", "--test", "*"]
+
+[tasks.test-stratum]
+description = "Run Stratum protocol tests"
+dependencies = ["build"]
+script = '''
+#!/usr/bin/env bash
+set -e
+echo "🧪 Running Stratum protocol tests..."
+cargo test stratum -- --nocapture
+'''
+
+[tasks.test-stratum-expect]
+description = "Run Stratum expect script test"
+dependencies = ["build", "start-stratum-server"]
+script = '''
+#!/usr/bin/env bash
+set -e
+echo "🧪 Running Stratum expect script test..."
+if ! command -v expect &> /dev/null; then
+    echo "❌ Error: 'expect' is not installed"
+    exit 1
+fi
+./scripts/stratum.expect
+'''
+
+# ==============================
+# Stress Test Tasks
+# ==============================
+
+[tasks.stress-test]
+description = "Run full end-to-end stress test suite"
+dependencies = ["build", "check-stress-test-deps"]
+env = { STRESS_TEST_RUNNING = "true" }
+script = '''
+#!/usr/bin/env bash
+set -e
+./scripts/e2e-stress-test.sh ${@}
+'''
+
+[tasks.stress-test-cpu]
+description = "Run CPU worker stress test"
+dependencies = ["build", "ensure-node-running"]
+script = '''
+#!/usr/bin/env bash
+set -e
+echo "🔥 Running CPU Worker Stress Test..."
+echo "Duration: ${TEST_DURATION} seconds"
+echo "Workers: ${WORKER_COUNT}"
+
+pids=()
+for i in $(seq 1 ${WORKER_COUNT}); do
+    ./target/release/chainweb-mining-client \
+        --worker cpu \
+        --node "${NODE_ENDPOINT}" \
+        --no-tls \
+        --public-key "${PUBLIC_KEY}" \
+        --account "${ACCOUNT}" \
+        --thread-count 2 \
+        --log-level info \
+        > "stress_test_cpu_${i}.log" 2>&1 &
+    pids+=($!)
+    echo "Started worker $i (PID: ${pids[$((i-1))]})"
+done
+
+sleep ${TEST_DURATION}
+
+echo "Stopping workers..."
+for pid in "${pids[@]}"; do
+    kill $pid 2>/dev/null || true
+done
+
+# Analyze results
+errors=$(grep -c "ERROR" stress_test_cpu_*.log 2>/dev/null || echo "0")
+solutions=$(grep -c "Solution accepted" stress_test_cpu_*.log 2>/dev/null || echo "0")
+
+echo "📊 Results:"
+echo "  Solutions accepted: $solutions"
+echo "  Errors: $errors"
+'''
+
+[tasks.stress-test-stratum]
+description = "Run Stratum server stress test"
+dependencies = ["build", "ensure-node-running"]
+script = '''
+#!/usr/bin/env bash
+set -e
+echo "🔥 Running Stratum Server Stress Test..."
+
+# Start stratum server
+./target/release/chainweb-mining-client \
+    --worker stratum \
+    --node "${NODE_ENDPOINT}" \
+    --no-tls \
+    --public-key "${PUBLIC_KEY}" \
+    --account "${ACCOUNT}" \
+    --stratum-port 1917 \
+    --stratum-host "0.0.0.0" \
+    --log-level info \
+    > stress_test_stratum_server.log 2>&1 &
+server_pid=$!
+
+sleep 5  # Give server time to start
+
+# Start mock miners
+pids=()
+for i in $(seq 1 ${WORKER_COUNT}); do
+    timeout ${TEST_DURATION} telnet localhost 1917 > stress_test_stratum_miner_${i}.log 2>&1 &
+    pids+=($!)
+    echo "Started miner $i"
+done
+
+sleep ${TEST_DURATION}
+
+# Cleanup
+kill $server_pid 2>/dev/null || true
+for pid in "${pids[@]}"; do
+    kill $pid 2>/dev/null || true
+done
+
+# Analyze results
+echo "📊 Stratum server test completed"
+'''
+
+[tasks.stress-test-constant-delay]
+description = "Run constant-delay worker stress test"
+dependencies = ["build", "ensure-node-pow-disabled"]
+script = '''
+#!/usr/bin/env bash
+set -e
+echo "🔥 Running Constant-Delay Worker Stress Test..."
+echo "Duration: ${TEST_DURATION} seconds"
+echo "Workers: ${WORKER_COUNT}"
+
+pids=()
+for i in $(seq 1 ${WORKER_COUNT}); do
+    ./target/release/chainweb-mining-client \
+        --worker constant-delay \
+        --node "${NODE_ENDPOINT}" \
+        --no-tls \
+        --public-key "${PUBLIC_KEY}" \
+        --account "${ACCOUNT}" \
+        --constant-delay-block-time 5 \
+        --log-level info \
+        > "stress_test_constant_delay_${i}.log" 2>&1 &
+    pids+=($!)
+    echo "Started worker $i (PID: ${pids[$((i-1))]})"
+done
+
+sleep ${TEST_DURATION}
+
+echo "Stopping workers..."
+for pid in "${pids[@]}"; do
+    kill $pid 2>/dev/null || true
+done
+
+# Analyze results
+errors=$(grep -c "ERROR" stress_test_constant_delay_*.log 2>/dev/null || echo "0")
+solutions=$(grep -c "Solution accepted" stress_test_constant_delay_*.log 2>/dev/null || echo "0")
+
+echo "📊 Results:"
+echo "  Solutions accepted: $solutions"
+echo "  Errors: $errors"
+'''
+
+[tasks.stress-test-simulation]
+description = "Run simulation worker stress test"
+dependencies = ["build", "ensure-node-running"]
+script = '''
+#!/usr/bin/env bash
+set -e
+echo "🔥 Running Simulation Worker Stress Test..."
+
+./target/release/chainweb-mining-client \
+    --worker simulation \
+    --node "${NODE_ENDPOINT}" \
+    --no-tls \
+    --public-key "${PUBLIC_KEY}" \
+    --account "${ACCOUNT}" \
+    --hash-rate 1000000 \
+    --log-level info \
+    > stress_test_simulation.log 2>&1 &
+pid=$!
+
+sleep ${TEST_DURATION}
+kill $pid 2>/dev/null || true
+
+# Analyze results
+errors=$(grep -c "ERROR" stress_test_simulation.log 2>/dev/null || echo "0")
+solutions=$(grep -c "Solution accepted" stress_test_simulation.log 2>/dev/null || echo "0")
+
+echo "📊 Results:"
+echo "  Solutions accepted: $solutions"
+echo "  Errors: $errors"
+'''
+
+# ==============================
+# Node Management Tasks
+# ==============================
+
+[tasks.start-node]
+description = "Start a chainweb node for testing"
+script = '''
+#!/usr/bin/env bash
+set -e
+./test-compatibility/start-chainweb-node.sh ${NODE_TYPE}
+'''
+
+[tasks.start-node-dev]
+description = "Start a development chainweb node with POW disabled"
+env = { NODE_TYPE = "dev" }
+script = '''
+#!/usr/bin/env bash
+set -e
+./test-compatibility/start-chainweb-node.sh dev
+'''
+
+[tasks.start-node-prod]
+description = "Start a production-like chainweb node"
+env = { NODE_TYPE = "prod" }
+script = '''
+#!/usr/bin/env bash
+set -e
+./test-compatibility/start-chainweb-node.sh prod
+'''
+
+[tasks.stop-node]
+description = "Stop the running chainweb node"
+script = '''
+#!/usr/bin/env bash
+docker stop chainweb-mining-test 2>/dev/null && docker rm chainweb-mining-test 2>/dev/null || true
+echo "✅ Chainweb node stopped"
+'''
+
+[tasks.node-logs]
+description = "Show chainweb node logs"
+script = '''
+#!/usr/bin/env bash
+docker logs -f chainweb-mining-test
+'''
+
+[tasks.node-status]
+description = "Check chainweb node status"
+script = '''
+#!/usr/bin/env bash
+if curl -s ${NODE_ENDPOINT}/info >/dev/null 2>&1; then
+    echo "✅ Node is running at ${NODE_ENDPOINT}"
+    curl -s ${NODE_ENDPOINT}/info | jq .
+else
+    echo "❌ Node is not running at ${NODE_ENDPOINT}"
+    exit 1
+fi
+'''
+
+# ==============================
+# Helper Tasks
+# ==============================
+
+[tasks.check-stress-test-deps]
+private = true
+script = '''
+#!/usr/bin/env bash
+set -e
+echo "🔍 Checking prerequisites..."
+
+missing_deps=()
+command -v docker >/dev/null 2>&1 || missing_deps+=("docker")
+command -v jq >/dev/null 2>&1 || missing_deps+=("jq")
+command -v telnet >/dev/null 2>&1 || missing_deps+=("telnet")
+
+if [ ${#missing_deps[@]} -ne 0 ]; then
+    echo "❌ Missing required tools: ${missing_deps[*]}"
+    echo "Please install them first."
+    exit 1
+fi
+
+echo "✅ All prerequisites are available"
+'''
+
+[tasks.ensure-node-running]
+private = true
+script = '''
+#!/usr/bin/env bash
+set -e
+if ! curl -s ${NODE_ENDPOINT}/info >/dev/null 2>&1; then
+    echo "⚠️  Node not running. Starting development node..."
+    cargo make start-node-dev
+    
+    # Wait for node to be ready
+    echo "Waiting for node to be ready..."
+    max_attempts=30
+    attempt=0
+    while [ $attempt -lt $max_attempts ]; do
+        if curl -s ${NODE_ENDPOINT}/info >/dev/null 2>&1; then
+            echo "✅ Node is ready!"
+            break
+        fi
+        sleep 2
+        attempt=$((attempt + 1))
+        echo -n "."
+    done
+    
+    if [ $attempt -eq $max_attempts ]; then
+        echo "❌ Node failed to start"
+        exit 1
+    fi
+fi
+'''
+
+[tasks.ensure-node-pow-disabled]
+private = true
+dependencies = ["ensure-node-running"]
+script = '''
+#!/usr/bin/env bash
+set -e
+# For constant-delay worker, we need a node with POW disabled
+# The current node should already have --disable-pow flag if started with start-node-dev
+echo "✅ Using development node with POW disabled"
+'''
+
+[tasks.start-stratum-server]
+private = true
+script = '''
+#!/usr/bin/env bash
+set -e
+echo "Starting Stratum server..."
+./target/release/chainweb-mining-client \
+    --worker stratum \
+    --node "${NODE_ENDPOINT}" \
+    --no-tls \
+    --public-key "${PUBLIC_KEY}" \
+    --stratum-port 1917 \
+    --log-level debug \
+    > stratum_server.log 2>&1 &
+echo $! > stratum_server.pid
+sleep 3
+'''
+
+# ==============================
+# Development Tasks
+# ==============================
+
+[tasks.dev]
+description = "Run development build and tests"
+dependencies = ["format", "lint", "build", "test"]
+
+[tasks.format]
+description = "Format code with rustfmt"
+install_crate = "rustfmt"
+command = "cargo"
+args = ["fmt"]
+
+[tasks.format-check]
+description = "Check code formatting"
+install_crate = "rustfmt"
+command = "cargo"
+args = ["fmt", "--", "--check"]
+
+[tasks.lint]
+description = "Run clippy linter"
+install_crate = "clippy"
+command = "cargo"
+args = ["clippy", "--", "-D", "warnings"]
+
+[tasks.clean]
+description = "Clean build artifacts and logs"
+script = '''
+#!/usr/bin/env bash
+echo "🧹 Cleaning build artifacts and log files..."
+
+# Clean Cargo artifacts
+cargo clean
+
+# Clean all generated log files
+rm -f stress_test_*.log
+rm -f benchmark_*.log
+rm -f node_*.log
+rm -f chainweb_*.log
+rm -f mining_*.log
+rm -f test_*.log
+rm -f docker_*.log
+rm -f container_*.log
+rm -f stratum_server.log
+rm -f constant_delay_*.log
+rm -f temp_*.log
+rm -f tmp_*.log
+
+# Clean PID files
+rm -f *.pid
+rm -f stratum_server.pid
+rm -f node.pid
+
+# Clean test artifacts
+rm -rf test_outputs/
+rm -rf temp_test_data/
+rm -rf coverage/
+rm -rf criterion/
+rm -rf bench_results/
+rm -rf benchmark_reports/
+
+# Clean profiling data
+rm -f *.profraw
+rm -f *.profdata
+
+echo "✅ Cleaned build artifacts and all generated files"
+'''
+
+[tasks.clean-logs]
+description = "Clean only log files (keeps build artifacts)"
+script = '''
+#!/usr/bin/env bash
+echo "🗑️  Cleaning log files..."
+
+# Clean all generated log files
+rm -f stress_test_*.log
+rm -f benchmark_*.log
+rm -f node_*.log
+rm -f chainweb_*.log
+rm -f mining_*.log
+rm -f test_*.log
+rm -f docker_*.log
+rm -f container_*.log
+rm -f stratum_server.log
+rm -f constant_delay_*.log
+rm -f temp_*.log
+rm -f tmp_*.log
+
+# Clean PID files
+rm -f *.pid
+rm -f stratum_server.pid
+rm -f node.pid
+
+echo "✅ Cleaned all log files"
+'''
+
+[tasks.post-stress-cleanup]
+description = "Clean up after stress tests (internal task)"
+private = true
+script = '''
+#!/usr/bin/env bash
+# Optional cleanup after stress tests - only if AUTO_CLEANUP is set
+if [ "${AUTO_CLEANUP:-}" = "true" ]; then
+    echo "🗑️  Auto-cleaning stress test logs..."
+    rm -f stress_test_*.log
+    rm -f *.pid
+    echo "✅ Auto-cleanup completed"
+fi
+'''
+
+# ==============================
+# Compatibility Test Tasks
+# ==============================
+
+[tasks.test-compat]
+description = "Run compatibility tests between Haskell and Rust implementations"
+dependencies = ["build", "ensure-node-running"]
+script = '''
+#!/usr/bin/env bash
+set -e
+./test-compatibility/test-all-workers.sh
+'''
+
+[tasks.test-compat-cpu]
+description = "Test CPU worker compatibility"
+dependencies = ["build", "ensure-node-running"]
+script = '''
+#!/usr/bin/env bash
+set -e
+./test-compatibility/test-all-workers.sh cpu
+'''
+
+[tasks.test-compat-stratum]
+description = "Test Stratum server compatibility"
+dependencies = ["build", "ensure-node-running"]
+script = '''
+#!/usr/bin/env bash
+set -e
+./test-compatibility/test-all-workers.sh stratum
+'''
+
+[tasks.test-compat-constant-delay]
+description = "Test constant-delay worker compatibility"
+dependencies = ["build", "ensure-node-pow-disabled"]
+script = '''
+#!/usr/bin/env bash
+set -e
+./test-compatibility/test-all-workers.sh constant-delay
+'''
+
+# ==============================
+# CI Tasks
+# ==============================
+
+[tasks.ci]
+description = "Run CI checks"
+dependencies = ["format-check", "lint", "build", "test"]
+
+[tasks.ci-full]
+description = "Run full CI including stress tests"
+dependencies = ["ci", "stress-test"]
+
+# ==============================
+# Default Task
+# ==============================
+
+[tasks.default]
+description = "Show available tasks"
+script = '''
+#!/usr/bin/env bash
+echo "Chainweb Mining Client - Cargo Make Tasks"
+echo "========================================"
+echo ""
+echo "Common tasks:"
+echo "  cargo make build              - Build in release mode"
+echo "  cargo make test               - Run all tests"
+echo "  cargo make stress-test        - Run full stress test suite"
+echo "  cargo make start-node-dev     - Start development node"
+echo "  cargo make stop-node          - Stop the test node"
+echo ""
+echo "Specific stress tests:"
+echo "  cargo make stress-test-cpu"
+echo "  cargo make stress-test-stratum"
+echo "  cargo make stress-test-constant-delay"
+echo "  cargo make stress-test-simulation"
+echo ""
+echo "Development:"
+echo "  cargo make dev                - Format, lint, build, and test"
+echo "  cargo make clean              - Clean build artifacts and logs"
+echo "  cargo make clean-logs         - Clean only log files"
+echo ""
+echo "Note: Stress tests generate log files (stress_test_*.log)"
+echo "      Use 'cargo make clean-logs' to remove them"
+echo ""
+echo "Run 'cargo make --list' to see all available tasks"
+'''

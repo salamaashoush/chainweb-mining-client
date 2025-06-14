@@ -144,9 +144,9 @@ impl CpuWorker {
             // Create working copy on stack (avoid allocation)
             let mut work_copy = *work_bytes;
 
-            // Modify nonce in-place (nonce is at bytes 8-16)
+            // Modify nonce in-place (nonce is at bytes 278-286)
             let nonce = Nonce::new(nonce_value);
-            work_copy[8..16].copy_from_slice(&nonce.to_le_bytes());
+            work_copy[crate::core::constants::NONCE_OFFSET..].copy_from_slice(&nonce.to_le_bytes());
 
             // Hash directly from bytes using Blake2s-256
             let mut hasher = blake2::Blake2s256::new();

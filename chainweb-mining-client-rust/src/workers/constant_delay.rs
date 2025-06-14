@@ -1,15 +1,15 @@
 //! Constant delay mining worker for non-PoW testing
 
-use crate::core::{Nonce, Target, Work};
+use crate::core::{Target, Work};
 use crate::error::Result;
 use crate::workers::{MiningResult, Worker};
 use async_trait::async_trait;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::sync::mpsc;
-use tokio::time::{MissedTickBehavior, interval};
-use tracing::{debug, info};
+use tokio::time::sleep;
+use tracing::info;
 
 /// Configuration for constant delay mining
 #[derive(Debug, Clone)]
@@ -20,8 +20,8 @@ pub struct ConstantDelayWorkerConfig {
 
 /// Constant delay mining worker
 ///
-/// This worker produces blocks at a constant rate, ignoring difficulty.
-/// Useful for testing in development mode with DISABLE_POW_VALIDATION=1.
+/// This worker returns work unchanged after a constant delay.
+/// Matches the Haskell implementation for testing in development mode.
 pub struct ConstantDelayWorker {
     config: ConstantDelayWorkerConfig,
     running: Arc<AtomicBool>,
@@ -52,45 +52,32 @@ impl Worker for ConstantDelayWorker {
     ) -> Result<()> {
         self.running.store(true, Ordering::Relaxed);
 
-        let running = Arc::clone(&self.running);
-        let block_time = Duration::from_secs(self.config.block_time_secs);
-        let work = work.clone();
+        // Match Haskell behavior: divide delay by 20
+        let delay_ms = (self.config.block_time_secs * 1000) / 20;
+        let delay = Duration::from_millis(delay_ms);
 
-        tokio::spawn(async move {
-            info!("Starting constant delay mining");
+        info!("solve time (seconds): {}", self.config.block_time_secs);
 
-            let mut ticker = interval(block_time);
-            ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        // Sleep for the configured delay
+        sleep(delay).await;
 
-            loop {
-                ticker.tick().await;
+        if !self.running.load(Ordering::Relaxed) {
+            return Ok(());
+        }
 
-                if !running.load(Ordering::Relaxed) {
-                    debug!("Constant delay mining stopped");
-                    break;
-                }
+        // Return work completely unchanged (matching Haskell behavior)
+        // The constant delay worker doesn't modify the nonce or compute hash
+        // It simply returns the original work after the delay
+        let result = MiningResult {
+            work: work.clone(),
+            nonce: work.nonce(), // Use the existing nonce from the work
+            hash: work.hash(),   // Use the hash of the unchanged work
+        };
 
-                // Generate a sequential nonce for debugging
-                static NONCE_COUNTER: AtomicU64 = AtomicU64::new(0);
-                let nonce_value = NONCE_COUNTER.fetch_add(1, Ordering::Relaxed);
-                let nonce = Nonce::new(nonce_value);
+        info!("Constant delay block produced - returning work unchanged");
 
-                // In constant delay mode, we don't compute the hash
-                // We just return the work with the nonce unchanged
-                let result = MiningResult {
-                    work: work.clone(),
-                    nonce,
-                    hash: [0u8; 32], // Fake hash
-                };
-
-                info!("Constant delay block produced with nonce: {}", nonce);
-
-                if let Err(e) = result_tx.send(result).await {
-                    debug!("Failed to send mining result: {}", e);
-                    break;
-                }
-            }
-        });
+        // Send the result
+        let _ = result_tx.send(result).await;
 
         Ok(())
     }

@@ -5,7 +5,6 @@ use chainweb_mining_client::core::{ChainId, Target, Work};
 use chainweb_mining_client::error::Error;
 use chainweb_mining_client::protocol::retry::should_retry;
 use criterion::{Criterion, criterion_group, criterion_main};
-use serde_json;
 use std::hint::black_box;
 use std::time::Duration;
 

@@ -51,45 +51,50 @@ The project includes a Rust rewrite in the `chainweb-mining-client-rust/` direct
 ```bash
 cd chainweb-mining-client-rust
 
+# Install cargo-make task runner
+cargo install cargo-make
+
 # Build release version
-cargo build --release
+cargo make build
 
 # Run all quality checks (recommended before committing)
-just check
+cargo make dev
 
 # Run tests
-cargo test
+cargo make test
 
 # Run CI checks (includes tests and release build)
-just ci
+cargo make ci
 ```
 
 **Development Tools:**
 ```bash
-# Install development tools
-just dev-setup
+# Install development tools and dependencies
+cargo make dev-setup
 
 # Format code
-just fmt
+cargo make format
 
 # Run clippy linter
-just lint
+cargo make lint
 
 # Check for typos
-just typos
+cargo make typos
 
 # Check for unused dependencies
-just unused-deps
+cargo make unused-deps
 
 # Quick development check
-just dev-check
-
-# Alternative: use the shell script
-./check.sh help
+cargo make dev-check
 
 # Test Stratum protocol compatibility
-just test-stratum         # Full integration test (requires expect/telnet)
-just test-stratum-unit    # Unit tests only
+cargo make test-stratum         # Full integration test (requires expect/telnet)
+cargo make test-stratum-unit     # Unit tests only
+
+# Node management
+cargo make start-node-dev        # Start development node
+cargo make stop-node             # Stop test node
+cargo make node-status           # Check node status
 ```
 
 **Available Checks:**
@@ -100,21 +105,33 @@ just test-stratum-unit    # Unit tests only
 - **Unused Dependencies**: Uses `cargo-machete` to detect unused deps
 - **Security Audit**: Uses `cargo audit` for dependency vulnerabilities
 
+**Stress Testing:**
+```bash
+# Run comprehensive stress tests
+cargo make stress-test
+
+# Individual worker stress tests
+cargo make stress-test-cpu              # CPU mining stress test
+cargo make stress-test-stratum          # Stratum server stress test
+cargo make stress-test-constant-delay   # Constant-delay worker test
+cargo make stress-test-simulation       # Simulation worker test
+```
+
 **Docker Support:**
 ```bash
 # Build Docker images
-just docker-build latest scratch     # Build with scratch base
-just docker-build latest distroless  # Build with distroless base
-just docker-build-all v1.0.0        # Build both variants
+cargo make docker-build latest scratch     # Build with scratch base
+cargo make docker-build latest distroless  # Build with distroless base
+cargo make docker-build-all v1.0.0        # Build both variants
 
 # Test Docker image
-just docker-test latest
+cargo make docker-test latest
 
 # Clean Docker cache
-just docker-clean
+cargo make docker-clean
 
 # Complete release workflow
-just release v1.0.0  # Runs checks, tests, builds, and creates Docker images
+cargo make release v1.0.0  # Runs checks, tests, builds, and creates Docker images
 ```
 
 **Continuous Integration:**

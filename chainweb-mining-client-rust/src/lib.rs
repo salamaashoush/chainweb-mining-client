@@ -59,7 +59,9 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::const_is_empty)]
     fn test_version() {
         assert!(!VERSION.is_empty());
+        assert!(VERSION.chars().any(|c| c.is_ascii_digit()));
     }
 }

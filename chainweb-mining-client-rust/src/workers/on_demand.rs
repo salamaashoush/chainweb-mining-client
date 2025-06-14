@@ -33,7 +33,7 @@ pub struct OnDemandWorkerConfig {
 struct MakeBlocksRequest {
     /// Map of chain ID to number of blocks to mine
     #[serde(flatten)]
-    chains: HashMap<u16, u64>,
+    chains: HashMap<String, u64>,
 }
 
 /// Response from make-blocks endpoint
@@ -132,7 +132,16 @@ async fn make_blocks_handler(
     let tx = result_tx.as_ref().unwrap();
 
     // Mine requested blocks for each chain
-    for (chain_id, count) in request.chains {
+    for (chain_id_str, count) in request.chains {
+        // Parse chain ID from string
+        let chain_id = match chain_id_str.parse::<u16>() {
+            Ok(id) => id,
+            Err(_) => {
+                errors.push(format!("Invalid chain ID: {}", chain_id_str));
+                continue;
+            }
+        };
+
         debug!("Mining {} blocks for chain {}", count, chain_id);
 
         let mut mined = 0;

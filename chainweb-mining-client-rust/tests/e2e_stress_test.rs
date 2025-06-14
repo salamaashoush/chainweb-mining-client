@@ -21,6 +21,7 @@ struct E2EStressConfig {
     /// Mining account
     pub account: String,
     /// Enable monitoring
+    #[allow(dead_code)]
     pub enable_monitoring: bool,
 }
 
@@ -49,10 +50,10 @@ impl ChainwebTestNode {
 
         // Stop any existing test node
         let _ = Command::new("docker")
-            .args(&["stop", "chainweb-mining-test"])
+            .args(["stop", "chainweb-mining-test"])
             .output();
         let _ = Command::new("docker")
-            .args(&["rm", "chainweb-mining-test"])
+            .args(["rm", "chainweb-mining-test"])
             .output();
 
         // Start the test node
@@ -103,6 +104,7 @@ impl ChainwebTestNode {
     }
 
     /// Get current mining work
+    #[allow(dead_code)]
     async fn get_work(&self, account: &str) -> Result<Value, Box<dyn std::error::Error>> {
         let url = format!("{}/chainweb/0.0/development/mining/work", self.endpoint);
         let client = reqwest::Client::new();
@@ -122,10 +124,7 @@ impl ChainwebTestNode {
 
     /// Check node health
     async fn health_check(&self) -> bool {
-        match self.get_info().await {
-            Ok(_) => true,
-            Err(_) => false,
-        }
+        self.get_info().await.is_ok()
     }
 }
 
@@ -135,10 +134,10 @@ impl Drop for ChainwebTestNode {
 
         // Stop Docker container
         let _ = Command::new("docker")
-            .args(&["stop", "chainweb-mining-test"])
+            .args(["stop", "chainweb-mining-test"])
             .output();
         let _ = Command::new("docker")
-            .args(&["rm", "chainweb-mining-test"])
+            .args(["rm", "chainweb-mining-test"])
             .output();
 
         // Kill the process if it's still running
@@ -276,7 +275,7 @@ impl StressTestCoordinator {
         // Start Stratum server in background
         let stratum_handle = tokio::spawn(async {
             let result = Command::new("cargo")
-                .args(&[
+                .args([
                     "run",
                     "--release",
                     "--",
@@ -402,7 +401,7 @@ impl StressTestCoordinator {
         account: &str,
     ) -> Result<u64, Box<dyn std::error::Error>> {
         let output = Command::new("cargo")
-            .args(&[
+            .args([
                 "run",
                 "--release",
                 "--",
@@ -469,7 +468,7 @@ impl StressTestCoordinator {
         account: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let output = Command::new("cargo")
-            .args(&[
+            .args([
                 "run",
                 "--release",
                 "--",

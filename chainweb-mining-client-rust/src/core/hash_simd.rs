@@ -108,9 +108,9 @@ impl VectorizedMiner {
         for (i, work_item) in self.work_buffer[..count].iter_mut().enumerate() {
             *work_item = *base_work;
 
-            // Update nonce (at bytes 8-16 in work structure)
+            // Update nonce (at bytes 278-286 in work structure)
             let nonce = start_nonce + i as u64;
-            work_item[8..16].copy_from_slice(&nonce.to_le_bytes());
+            work_item[crate::core::constants::NONCE_OFFSET..].copy_from_slice(&nonce.to_le_bytes());
         }
     }
 
@@ -292,22 +292,23 @@ mod tests {
         let mut base_work = [0u8; 286];
 
         // Set a known pattern in the nonce area
-        base_work[8..16].copy_from_slice(&42u64.to_le_bytes());
+        base_work[crate::core::constants::NONCE_OFFSET..].copy_from_slice(&42u64.to_le_bytes());
 
         miner.prepare_work_batch(&base_work, 100, 4);
 
         // Check that nonces were properly updated
         for i in 0..4 {
             let expected_nonce = 100 + i as u64;
+            let nonce_offset = crate::core::constants::NONCE_OFFSET;
             let actual_nonce = u64::from_le_bytes([
-                miner.work_buffer[i][8],
-                miner.work_buffer[i][9],
-                miner.work_buffer[i][10],
-                miner.work_buffer[i][11],
-                miner.work_buffer[i][12],
-                miner.work_buffer[i][13],
-                miner.work_buffer[i][14],
-                miner.work_buffer[i][15],
+                miner.work_buffer[i][nonce_offset],
+                miner.work_buffer[i][nonce_offset + 1],
+                miner.work_buffer[i][nonce_offset + 2],
+                miner.work_buffer[i][nonce_offset + 3],
+                miner.work_buffer[i][nonce_offset + 4],
+                miner.work_buffer[i][nonce_offset + 5],
+                miner.work_buffer[i][nonce_offset + 6],
+                miner.work_buffer[i][nonce_offset + 7],
             ]);
             assert_eq!(actual_nonce, expected_nonce);
         }

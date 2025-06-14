@@ -1,7 +1,33 @@
+# Haskell
 dist-newstyle
 hls.log
 .ghc.environment*
 .ghci_history
 .ghci
-.DS_Store
+
+# Rust
 target/
+Cargo.lock
+*.orig
+
+# Generated log files
+stress_test_*.log
+benchmark_*.log
+node_*.log
+chainweb_*.log
+mining_*.log
+test_*.log
+docker_*.log
+container_*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+
+# Local configuration
+.env.local
+local.toml

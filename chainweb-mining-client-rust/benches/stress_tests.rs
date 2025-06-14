@@ -2,18 +2,16 @@
 //!
 //! These tests push the system to its limits to ensure stability under extreme conditions.
 
-use chainweb_mining_client::core::{Nonce, Target, VectorizedMiner, Work};
+use chainweb_mining_client::core::{Target, VectorizedMiner, Work};
 use chainweb_mining_client::protocol::http_pool::{ClientType, HttpClientPool, HttpPoolConfig};
-use chainweb_mining_client::workers::cpu::{CpuWorker, CpuWorkerConfig};
 use criterion::{
-    BatchSize, BenchmarkGroup, BenchmarkId, Criterion, Throughput, black_box, criterion_group,
-    criterion_main, measurement::WallTime,
+    BatchSize, BenchmarkId, Criterion, Throughput, criterion_group,
+    criterion_main,
 };
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
-use tokio::runtime::Runtime;
 
 /// Stress test mining operations with extreme loads
 fn stress_test_extreme_mining(c: &mut Criterion) {
@@ -36,7 +34,7 @@ fn stress_test_extreme_mining(c: &mut Criterion) {
                     |mut miner| {
                         let base_work = [0x88u8; 286];
                         let hashes = miner.mine_batch(&base_work, 0, batch_size);
-                        black_box(hashes);
+                        std::hint::black_box(hashes);
                     },
                     BatchSize::LargeInput,
                 );
@@ -89,7 +87,7 @@ fn stress_test_concurrency(c: &mut Criterion) {
                     }
 
                     let total_hashes = hash_counter.load(Ordering::Relaxed);
-                    black_box(total_hashes);
+                    std::hint::black_box(total_hashes);
                 });
             },
         );
@@ -129,12 +127,12 @@ fn stress_test_memory_pressure(c: &mut Criterion) {
                 if i < works.len() {
                     let base_work = *works[i].as_bytes();
                     let hashes = miner.mine_batch(&base_work, i as u64 * 1000, 50);
-                    black_box(hashes);
+                    std::hint::black_box(hashes);
                 }
             }
 
             // Cleanup happens automatically due to RAII
-            black_box((miners.len(), works.len(), targets.len()));
+            std::hint::black_box((miners.len(), works.len(), targets.len()));
         });
     });
 
@@ -160,7 +158,7 @@ fn stress_test_memory_pressure(c: &mut Criterion) {
                             round as u64 * 10000 + i as u64 * 1000,
                             100,
                         );
-                        black_box(hashes);
+                        std::hint::black_box(hashes);
                     }
                 }
             },
@@ -215,7 +213,7 @@ fn stress_test_http_pool(c: &mut Criterion) {
 
             let total_accesses = access_count.load(Ordering::Relaxed);
             let stats = pool.get_stats();
-            black_box((total_accesses, stats));
+            std::hint::black_box((total_accesses, stats));
         });
     });
 
@@ -239,7 +237,7 @@ fn stress_test_http_pool(c: &mut Criterion) {
             }
 
             let final_stats = pool.get_stats();
-            black_box(final_stats);
+            std::hint::black_box(final_stats);
         });
     });
 
@@ -285,7 +283,7 @@ fn stress_test_target_arithmetic(c: &mut Criterion) {
                     }
                 }
 
-                black_box(meeting_count);
+                std::hint::black_box(meeting_count);
             },
             BatchSize::LargeInput,
         );
@@ -319,7 +317,7 @@ fn stress_test_endurance(c: &mut Criterion) {
                 }
             }
 
-            black_box(total_hashes);
+            std::hint::black_box(total_hashes);
         });
     });
 
@@ -360,7 +358,7 @@ fn stress_test_endurance(c: &mut Criterion) {
             }
 
             let total_ops = total_operations.load(Ordering::Relaxed);
-            black_box(total_ops);
+            std::hint::black_box(total_ops);
         });
     });
 
@@ -394,10 +392,10 @@ fn stress_test_resource_exhaustion(c: &mut Criterion) {
             for (i, miner) in large_allocations.iter_mut().enumerate().take(10) {
                 let base_work = [i as u8; 286];
                 let hashes = miner.mine_batch(&base_work, i as u64 * 1000, 10);
-                black_box(hashes);
+                std::hint::black_box(hashes);
             }
 
-            black_box(allocation_count);
+            std::hint::black_box(allocation_count);
         });
     });
 

@@ -28,18 +28,14 @@ impl Target {
         let mut array = [0u8; 32];
         array.copy_from_slice(bytes);
 
-        // Reverse bytes to convert from little-endian to big-endian
-        array.reverse();
-
+        // Keep little-endian format for internal storage (matching Haskell)
         Ok(Self(array))
     }
 
     /// Create a Target from little-endian bytes without reversing (direct copy)
     pub fn from_le_bytes(bytes: [u8; 32]) -> Self {
-        // Convert little-endian to big-endian for internal storage
-        let mut reversed = bytes;
-        reversed.reverse();
-        Self(reversed)
+        // Keep little-endian format for internal storage (matching Haskell)
+        Self(bytes)
     }
 
     /// Create a Target from a hex string
@@ -71,8 +67,9 @@ impl Target {
 
     /// Check if a hash meets this target (is below it)
     pub fn meets_target(&self, hash: &[u8; 32]) -> bool {
-        // Compare as big-endian integers
-        for (hash_byte, target_byte) in hash.iter().zip(self.0.iter()) {
+        // Compare as little-endian integers (matching Haskell powHashToTargetWords)
+        // Compare from least significant byte to most significant byte
+        for (hash_byte, target_byte) in hash.iter().rev().zip(self.0.iter().rev()) {
             match hash_byte.cmp(target_byte) {
                 std::cmp::Ordering::Less => return true,
                 std::cmp::Ordering::Greater => return false,
@@ -154,11 +151,8 @@ pub fn check_target(target: &Target, work: &Work) -> Result<bool> {
     hasher.update(work.as_bytes());
     let hash_bytes = hasher.finalize();
 
-    // Convert little-endian hash to Target (matching Haskell logic)
-    let hash_target = Target::from_le_bytes(hash_bytes.into());
-
-    // Compare targets: hash_target <= target
-    Ok(hash_target.0 <= target.0)
+    // Use the same logic as meets_target but with proper hash computation
+    Ok(target.meets_target(&hash_bytes.into()))
 }
 
 impl fmt::Display for Target {
@@ -206,26 +200,27 @@ mod tests {
 
     #[test]
     fn test_target_meets_target() {
+        // Target with higher value in most significant byte (little-endian format)
         let target_bytes = [
-            0x00, 0x00, 0x00, 0x0F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
             0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-            0xFF, 0xFF, 0xFF, 0xFF,
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            0xFF, 0xFF, 0xFF, 0x0F,
         ];
         let target = Target::from_bytes(target_bytes);
 
-        // Hash that meets target
+        // Hash that meets target (smaller in little-endian interpretation)
         let good_hash = [
-            0x00, 0x00, 0x00, 0x0E, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
             0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-            0xFF, 0xFF, 0xFF, 0xFF,
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            0xFF, 0xFF, 0xFF, 0x0E,
         ];
         assert!(target.meets_target(&good_hash));
 
-        // Hash that doesn't meet target
+        // Hash that doesn't meet target (larger in little-endian interpretation)
         let bad_hash = [
-            0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x10,
         ];
         assert!(!target.meets_target(&bad_hash));
 
@@ -261,9 +256,9 @@ mod tests {
 
         let target = Target::from_bytes_le(&le_bytes).unwrap();
 
-        // After reversal, 0xFF should be at index 0 and 0x01 at index 31
-        assert_eq!(target.as_bytes()[0], 0xFF);
-        assert_eq!(target.as_bytes()[31], 0x01);
+        // With little-endian format preserved, 0x01 should be at index 0 and 0xFF at index 31
+        assert_eq!(target.as_bytes()[0], 0x01);
+        assert_eq!(target.as_bytes()[31], 0xFF);
 
         // Test with all zeros
         let zero_bytes = [0u8; 32];

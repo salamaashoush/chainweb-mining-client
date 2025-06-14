@@ -376,8 +376,10 @@ mod tests {
 
     #[test]
     fn test_preemption_rate_limiting() {
-        let mut config = PreemptionConfig::default();
-        config.min_preemption_interval = Duration::from_millis(1000);
+        let config = PreemptionConfig {
+            min_preemption_interval: Duration::from_millis(1000),
+            ..Default::default()
+        };
         let preemptor = WorkPreemptor::new(config);
 
         let work1 = Work::from_bytes([1u8; WORK_SIZE]);
@@ -416,8 +418,10 @@ mod tests {
 
     #[test]
     fn test_preemption_strategy_delayed() {
-        let mut config = PreemptionConfig::default();
-        config.strategy = PreemptionStrategy::Delayed(Duration::from_millis(100));
+        let config = PreemptionConfig {
+            strategy: PreemptionStrategy::Delayed(Duration::from_millis(100)),
+            ..Default::default()
+        };
         let preemptor = WorkPreemptor::new(config);
 
         let work1 = Work::from_bytes([1u8; WORK_SIZE]);

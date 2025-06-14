@@ -23,15 +23,14 @@ if [ "$NODE_TYPE" = "dev" ]; then
         -e DISABLE_POW_VALIDATION=1 \
         --ulimit nofile=65535:65535 \
         salamaashoush/chainweb-node:latest \
-        /chainweb/chainweb-node \
         +RTS -T -H400M -A64M -RTS \
-        --node-id=0 \
         --log-level=info \
+        --chainweb-version=development \
         --enable-mining-coordination \
         --mining-public-key="$PUBLIC_KEY" \
         --header-stream \
         --allowReadsInLocal \
-        --database-directory=/chainweb/db \
+        --database-directory=/tmp/chainweb-db \
         --p2p-hostname=0.0.0.0 \
         --p2p-port=1789 \
         --service-port=1848 \
@@ -39,7 +38,8 @@ if [ "$NODE_TYPE" = "dev" ]; then
         --mempool-p2p-max-session-count=0 \
         --disable-mempool-p2p \
         --prune-chain-database=none \
-        --fast-forward-block-height-limit=400
+        --fast-forward-block-height-limit=400 \
+        --disable-pow
 else
     # Production-like node with PoW validation enabled
     docker run -d \
@@ -48,15 +48,14 @@ else
         -p 1789:1789 \
         --ulimit nofile=65535:65535 \
         salamaashoush/chainweb-node:latest \
-        /chainweb/chainweb-node \
         +RTS -T -H400M -A64M -RTS \
-        --node-id=0 \
         --log-level=info \
+        --chainweb-version=development \
         --enable-mining-coordination \
         --mining-public-key="$PUBLIC_KEY" \
         --header-stream \
         --allowReadsInLocal \
-        --database-directory=/chainweb/db \
+        --database-directory=/tmp/chainweb-db \
         --p2p-hostname=0.0.0.0 \
         --p2p-port=1789 \
         --service-port=1848 \

@@ -187,10 +187,10 @@ fn bench_unit_parsing(c: &mut Criterion) {
 
     let test_cases = vec!["1000", "1K", "2.5M", "1Gi", "500Mi", "1.5T", "100Ki"];
 
-    group.bench_function("parse_with_unit_prefix", |b| {
+    group.bench_function("parse_with_unit", |b| {
         b.iter(|| {
             for case in &test_cases {
-                black_box(units::parse_with_unit_prefix(case).unwrap());
+                black_box(units::parse_with_unit(case).unwrap());
             }
         });
     });

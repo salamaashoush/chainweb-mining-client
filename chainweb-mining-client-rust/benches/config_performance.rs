@@ -3,8 +3,6 @@
 use chainweb_mining_client::config::{Config, FlatConfig, StratumDifficulty, WorkerConfig};
 use chainweb_mining_client::utils::units;
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use serde_json;
-use serde_yaml;
 use std::hint::black_box;
 use std::str::FromStr;
 
@@ -190,7 +188,7 @@ fn bench_unit_parsing_performance(c: &mut Criterion) {
     group.bench_function("parse_various_units", |b| {
         b.iter(|| {
             for case in &test_cases {
-                black_box(units::parse_with_unit_prefix(case).unwrap());
+                black_box(units::parse_with_unit(case).unwrap());
             }
         });
     });
@@ -206,7 +204,7 @@ fn bench_unit_parsing_performance(c: &mut Criterion) {
     group.bench_function("parse_memory_sizes", |b| {
         b.iter(|| {
             for case in &test_cases {
-                if let Ok(val) = units::parse_with_unit_prefix(case) {
+                if let Ok(val) = units::parse_with_unit(case) {
                     if val <= u64::MAX as f64 {
                         black_box(val as u64);
                     }

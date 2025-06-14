@@ -3,16 +3,16 @@
 //! This benchmark suite provides thorough testing of all critical performance
 //! characteristics needed for production deployment.
 
-use chainweb_mining_client::core::{AdaptiveHasher, ChainId, Nonce, Target, VectorizedMiner, Work};
+use chainweb_mining_client::core::{AdaptiveHasher, Nonce, Target, VectorizedMiner, Work};
 use chainweb_mining_client::protocol::http_pool::{ClientType, HttpClientPool, HttpPoolConfig};
 use chainweb_mining_client::utils::units;
 use criterion::{
-    AxisScale, BatchSize, BenchmarkId, Criterion, PlotConfiguration, Throughput, black_box,
+    AxisScale, BatchSize, BenchmarkId, Criterion, PlotConfiguration, Throughput,
     criterion_group, criterion_main,
 };
-use std::hint::black_box as std_black_box;
-use std::time::{Duration, Instant};
-use tokio::runtime::Runtime;
+use std::hint::black_box;
+use std::sync::Arc;
+use std::time::Duration;
 
 /// Benchmark SIMD-optimized mining operations
 fn bench_vectorized_mining(c: &mut Criterion) {
@@ -103,7 +103,7 @@ fn bench_stress_mining(c: &mut Criterion) {
                     for _ in 0..iteration_count {
                         work.set_nonce(Nonce::new(nonce_val));
                         let hash = work.hash();
-                        std_black_box(hash);
+                        black_box(hash);
                         nonce_val = nonce_val.wrapping_add(1);
                     }
                 });
@@ -125,10 +125,10 @@ fn bench_stress_mining(c: &mut Criterion) {
                 let mut base_work = [0u8; 286];
                 base_work[0] = i as u8; // Make each miner's work unique
                 let hashes = miner.mine_batch(&base_work, i as u64 * 1000, 50);
-                std_black_box(hashes);
+                black_box(hashes);
             }
 
-            std_black_box(miners.len());
+            black_box(miners.len());
         });
     });
 
@@ -149,17 +149,15 @@ fn bench_http_pool_stress(c: &mut Criterion) {
             &thread_count,
             |b, &thread_count| {
                 b.iter(|| {
-                    let pool = HttpClientPool::new();
+                    let pool = Arc::new(HttpClientPool::new());
                     let handles: Vec<_> = (0..thread_count)
                         .map(|_| {
-                            std::thread::spawn({
-                                let pool = &pool;
-                                move || {
-                                    for _ in 0..10 {
-                                        let _client = pool.get_client(ClientType::Mining).unwrap();
-                                        let _config_client =
-                                            pool.get_client(ClientType::Config).unwrap();
-                                    }
+                            let pool = Arc::clone(&pool);
+                            std::thread::spawn(move || {
+                                for _ in 0..10 {
+                                    let _client = pool.get_client(ClientType::Mining).unwrap();
+                                    let _config_client =
+                                        pool.get_client(ClientType::Config).unwrap();
                                 }
                             })
                         })
@@ -170,7 +168,7 @@ fn bench_http_pool_stress(c: &mut Criterion) {
                     }
 
                     let stats = pool.get_stats();
-                    std_black_box(stats);
+                    black_box(stats);
                 });
             },
         );
@@ -187,7 +185,7 @@ fn bench_http_pool_stress(c: &mut Criterion) {
                 let _client = pool.get_client(ClientType::Mining).unwrap();
             }
             let stats = pool.get_stats();
-            std_black_box(stats);
+            black_box(stats);
         });
     });
 
@@ -240,7 +238,7 @@ fn bench_target_arithmetic_stress(c: &mut Criterion) {
                             meeting_count += 1;
                         }
                     }
-                    std_black_box(meeting_count);
+                    black_box(meeting_count);
                 });
             },
         );
@@ -254,29 +252,29 @@ fn bench_config_stress(c: &mut Criterion) {
     let mut group = c.benchmark_group("config_stress");
 
     // Test unit parsing performance with many values
-    let test_values: Vec<String> = vec![
+    let _test_values: Vec<String> = vec![
         // Standard values
-        "1000",
-        "1K",
-        "1M",
-        "1G",
-        "1T",
+        "1000".to_string(),
+        "1K".to_string(),
+        "1M".to_string(),
+        "1G".to_string(),
+        "1T".to_string(),
         // Binary values
-        "1Ki",
-        "1Mi",
-        "1Gi",
-        "1Ti",
-        "1Pi",
+        "1Ki".to_string(),
+        "1Mi".to_string(),
+        "1Gi".to_string(),
+        "1Ti".to_string(),
+        "1Pi".to_string(),
         // Decimal values
-        "1.5K",
-        "2.7M",
-        "3.14G",
-        "42.0T",
+        "1.5K".to_string(),
+        "2.7M".to_string(),
+        "3.14G".to_string(),
+        "42.0T".to_string(),
         // Edge cases
-        "0",
-        "1",
-        "999",
-        "1000000000000",
+        "0".to_string(),
+        "1".to_string(),
+        "999".to_string(),
+        "1000000000000".to_string(),
     ];
 
     // Create many test cases
@@ -291,8 +289,8 @@ fn bench_config_stress(c: &mut Criterion) {
     group.bench_function("parse_unit_prefix_stress", |b| {
         b.iter(|| {
             for value in &large_test_set {
-                if let Ok(parsed) = units::parse_with_unit_prefix(value) {
-                    std_black_box(parsed);
+                if let Ok(parsed) = units::parse_with_unit(value) {
+                    black_box(parsed);
                 }
             }
         });
@@ -302,7 +300,7 @@ fn bench_config_stress(c: &mut Criterion) {
         b.iter(|| {
             for value in &large_test_set {
                 if let Ok(parsed) = units::parse_hash_rate(value) {
-                    std_black_box(parsed);
+                    black_box(parsed);
                 }
             }
         });
@@ -351,7 +349,7 @@ fn bench_production_simulation(c: &mut Criterion) {
                     let hashes = miner.mine_batch(&base_work, start_nonce, 500);
 
                     // Check for solutions
-                    for (i, hash) in hashes.iter().enumerate() {
+                    for (_i, hash) in hashes.iter().enumerate() {
                         total_hashes += 1;
                         if target.meets_target(hash) {
                             solutions_found += 1;
@@ -360,7 +358,7 @@ fn bench_production_simulation(c: &mut Criterion) {
                     }
                 }
 
-                std_black_box((total_hashes, solutions_found));
+                black_box((total_hashes, solutions_found));
             },
             BatchSize::SmallInput,
         );
@@ -379,7 +377,7 @@ fn bench_production_simulation(c: &mut Criterion) {
             for conn_id in 0..connection_count {
                 // Simulate job distribution
                 for job_id in 0..jobs_per_connection {
-                    let job_data = format!("job_{}_{}", conn_id, job_id);
+                    let _job_data = format!("job_{}_{}", conn_id, job_id);
                     total_jobs += 1;
 
                     // Simulate share submissions (some connections more active)
@@ -391,12 +389,12 @@ fn bench_production_simulation(c: &mut Criterion) {
                         let mut work = Work::from_bytes([0x33u8; 286]);
                         work.set_nonce(Nonce::new(share_id as u64 + job_id as u64 * 1000));
                         let hash = work.hash();
-                        std_black_box(hash);
+                        black_box(hash);
                     }
                 }
             }
 
-            std_black_box((total_jobs, total_shares));
+            black_box((total_jobs, total_shares));
         });
     });
 
@@ -422,14 +420,14 @@ fn bench_memory_efficiency(c: &mut Criterion) {
 
                 // Miner allocation
                 let miner = VectorizedMiner::new(64);
-                std_black_box(miner);
+                black_box(miner);
 
                 // Target allocation
                 let target = Target::from_bytes([i as u8; 32]);
-                std_black_box(target);
+                black_box(target);
             }
 
-            std_black_box(allocations.len());
+            black_box(allocations.len());
         });
     });
 
@@ -443,7 +441,7 @@ fn bench_memory_efficiency(c: &mut Criterion) {
                     let mut base_work = [0x66u8; 286];
                     base_work[0] = i as u8;
                     let hashes = miner.mine_batch(&base_work, i as u64 * 1000, 100);
-                    std_black_box(hashes);
+                    black_box(hashes);
                 }
             },
             BatchSize::SmallInput,

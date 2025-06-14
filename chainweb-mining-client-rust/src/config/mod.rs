@@ -1139,20 +1139,24 @@ mod tests {
 
     #[test]
     fn test_worker_type() {
-        let mut config = Config::default();
-
-        config.worker = WorkerConfig::Cpu {
-            threads: 4,
-            batch_size: 1000,
+        let config = Config {
+            worker: WorkerConfig::Cpu {
+                threads: 4,
+                batch_size: 1000,
+            },
+            ..Default::default()
         };
         assert_eq!(config.worker_type(), WorkerType::Cpu);
 
-        config.worker = WorkerConfig::Stratum {
-            port: 3333,
-            host: "localhost".to_string(),
-            max_connections: 100,
-            difficulty: StratumDifficulty::Block,
-            rate_ms: 1000,
+        let config = Config {
+            worker: WorkerConfig::Stratum {
+                port: 3333,
+                host: "localhost".to_string(),
+                max_connections: 100,
+                difficulty: StratumDifficulty::Block,
+                rate_ms: 1000,
+            },
+            ..Default::default()
         };
         assert_eq!(config.worker_type(), WorkerType::Stratum);
     }

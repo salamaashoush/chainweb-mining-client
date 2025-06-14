@@ -453,9 +453,11 @@ mod tests {
 
     #[test]
     fn test_custom_config() {
-        let mut config = HttpPoolConfig::default();
-        config.max_connections_per_host = 50;
-        config.connect_timeout = Duration::from_secs(5);
+        let config = HttpPoolConfig {
+            max_connections_per_host: 50,
+            connect_timeout: Duration::from_secs(5),
+            ..Default::default()
+        };
 
         let pool = HttpClientPool::with_config(config.clone());
         assert_eq!(pool.config.max_connections_per_host, 50);

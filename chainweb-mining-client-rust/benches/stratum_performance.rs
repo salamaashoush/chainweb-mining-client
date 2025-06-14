@@ -2,7 +2,6 @@
 
 use chainweb_mining_client::core::{Target, Work};
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use serde_json;
 use std::collections::HashMap;
 use std::hint::black_box;
 

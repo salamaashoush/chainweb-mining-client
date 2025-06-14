@@ -213,8 +213,10 @@ impl ChainwebClient {
         let work = Work::from_slice(&response_bytes[36..])?;
 
         debug!(
-            "Received work for chain {} with target: {}",
-            chain_id, target
+            "Received work for chain {} with target: {}, nonce: {}",
+            chain_id,
+            target,
+            work.nonce()
         );
 
         Ok((work, target))
