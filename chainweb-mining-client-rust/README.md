@@ -192,7 +192,12 @@ just audit        # Run security audit
 just test         # Run all tests
 just build        # Build debug version
 just build-release # Build optimized release
-just bench        # Run benchmarks
+just bench        # Run basic benchmarks
+just bench-all    # Run comprehensive benchmark suite
+just bench-quick  # Run quick benchmarks (fewer samples)
+just bench-save main           # Save benchmark baseline
+just bench-compare main        # Compare against baseline
+just bench-report ./reports    # Generate HTML reports
 
 # Docker Support
 just docker-build latest scratch     # Build scratch-based image
@@ -315,6 +320,36 @@ The Rust implementation provides several performance advantages:
 - **Parallel nonce checking** with work-stealing scheduler
 
 Benchmarks show 2-3x performance improvement over the Haskell implementation for CPU mining.
+
+### Benchmarks
+
+The project includes comprehensive benchmarks measuring performance across all critical components:
+
+```bash
+# Run all benchmarks
+./scripts/bench.sh
+
+# Quick benchmark run (fewer samples)
+./scripts/bench.sh --quick
+
+# Save results as baseline for comparison
+./scripts/bench.sh --save-baseline main
+
+# Compare against previous baseline
+./scripts/bench.sh --compare-baseline main
+
+# Generate HTML reports
+./scripts/bench.sh --output-dir ./reports
+```
+
+**Benchmark Categories:**
+
+- **Mining Performance**: Core operations (hashing: ~270ns, nonce ops: <1ns, target checking)
+- **Protocol Performance**: Network operations (JSON serialization, binary encoding, retry logic)
+- **Stratum Performance**: Mining pool protocol (message parsing, job management, share validation)
+- **Configuration Performance**: Config parsing and validation (YAML, JSON, TOML)
+
+For detailed benchmark documentation, see [BENCHMARKS.md](BENCHMARKS.md).
 
 ## Compatibility
 

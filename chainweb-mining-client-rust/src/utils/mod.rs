@@ -1,5 +1,7 @@
 //! Utility functions and helpers
 
+pub mod units;
+
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing_subscriber::EnvFilter;
 

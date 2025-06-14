@@ -2,6 +2,7 @@
 
 use crate::core::{ChainId, Target, Work};
 use crate::error::{Error, Result};
+use crate::protocol::retry::{retry_http, retry_critical};
 use eventsource_stream::Eventsource;
 use futures::StreamExt;
 use reqwest::Client;
@@ -98,8 +99,13 @@ impl ChainwebClient {
         format!("{}://{}", scheme, self.config.node_url)
     }
 
-    /// Get node information
+    /// Get node information with retry logic
     pub async fn get_node_info(&self) -> Result<NodeInfo> {
+        retry_http(|| self.get_node_info_once()).await
+    }
+
+    /// Get node information (single attempt)
+    async fn get_node_info_once(&self) -> Result<NodeInfo> {
         let url = format!("{}/info", self.base_url());
 
         debug!("Getting node info from: {}", url);
@@ -128,8 +134,13 @@ impl ChainwebClient {
         Ok(info)
     }
 
-    /// Get work from the node
+    /// Get work from the node with retry logic
     pub async fn get_work(&self) -> Result<(Work, Target)> {
+        retry_http(|| self.get_work_once()).await
+    }
+
+    /// Get work from the node (single attempt)
+    async fn get_work_once(&self) -> Result<(Work, Target)> {
         let url = format!(
             "{}/chainweb/0.0/{}/mining/work",
             self.base_url(),
@@ -200,8 +211,13 @@ impl ChainwebClient {
         Ok((work, target))
     }
 
-    /// Submit a solution to the node
+    /// Submit a solution to the node with retry logic
     pub async fn submit_solution(&self, work: &Work) -> Result<()> {
+        retry_critical(|| self.submit_solution_once(work)).await
+    }
+
+    /// Submit a solution to the node (single attempt)
+    async fn submit_solution_once(&self, work: &Work) -> Result<()> {
         let url = format!("{}/chainweb/0.0/{}/mining/solved", self.base_url(), self.node_version());
 
         debug!("Submitting solution to: {}", url);

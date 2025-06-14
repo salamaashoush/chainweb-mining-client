@@ -115,6 +115,36 @@ bench:
     @echo "⚡ Running benchmarks..."
     cargo bench --features bench
 
+# Run comprehensive benchmark suite
+bench-all:
+    @echo "⚡ Running comprehensive benchmark suite..."
+    chmod +x ./scripts/bench.sh
+    ./scripts/bench.sh
+
+# Run quick benchmarks (fewer samples)
+bench-quick:
+    @echo "⚡ Running quick benchmarks..."
+    chmod +x ./scripts/bench.sh
+    ./scripts/bench.sh --quick
+
+# Save benchmark baseline
+bench-save baseline="main":
+    @echo "⚡ Saving benchmark baseline: {{baseline}}..."
+    chmod +x ./scripts/bench.sh
+    ./scripts/bench.sh --save-baseline {{baseline}}
+
+# Compare against benchmark baseline
+bench-compare baseline="main":
+    @echo "⚡ Comparing against baseline: {{baseline}}..."
+    chmod +x ./scripts/bench.sh
+    ./scripts/bench.sh --compare-baseline {{baseline}}
+
+# Generate benchmark HTML reports
+bench-report output="./bench-reports":
+    @echo "⚡ Generating benchmark reports in {{output}}..."
+    chmod +x ./scripts/bench.sh
+    ./scripts/bench.sh --output-dir {{output}}
+
 # Clean build artifacts
 clean:
     @echo "🧹 Cleaning build artifacts..."

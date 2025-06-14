@@ -1,6 +1,7 @@
 //! Configuration management for the mining client
 
 use crate::error::{Error, Result};
+use crate::utils::units;
 use crate::workers::WorkerType;
 use clap::Parser;
 use serde::{Deserialize, Serialize};
@@ -500,33 +501,9 @@ fn default_log_format() -> String {
     "plain".to_string()
 }
 
-/// Parse hash rate with unit prefixes (e.g., "1M", "100K", "1.5G")
+/// Parse hash rate with unit prefixes (e.g., "1M", "100K", "1.5G", "2Ki", "3Mi")
 fn parse_hash_rate(s: &str) -> Result<f64> {
-    let s = s.trim();
-    if s.is_empty() {
-        return Err(Error::config("Empty hash rate"));
-    }
-
-    // Check if it ends with a unit suffix
-    let (number_part, multiplier) = if let Some(c) = s.chars().last() {
-        match c.to_ascii_uppercase() {
-            'K' => (&s[..s.len() - 1], 1_000.0),
-            'M' => (&s[..s.len() - 1], 1_000_000.0),
-            'G' => (&s[..s.len() - 1], 1_000_000_000.0),
-            'T' => (&s[..s.len() - 1], 1_000_000_000_000.0),
-            'P' => (&s[..s.len() - 1], 1_000_000_000_000_000.0),
-            _ if c.is_numeric() => (s, 1.0),
-            _ => return Err(Error::config(format!("Invalid hash rate suffix: {}", c))),
-        }
-    } else {
-        (s, 1.0)
-    };
-
-    let base_value = number_part
-        .parse::<f64>()
-        .map_err(|_| Error::config(format!("Invalid hash rate number: {}", number_part)))?;
-
-    Ok(base_value * multiplier)
+    units::parse_hash_rate(s)
 }
 
 impl Config {

@@ -41,6 +41,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 # Error handling
 thiserror = "2.0"
+anyhow = "1.0"
+
+# Retry logic (manual implementation)
 
 # Utilities
 parking_lot = "0.12"
@@ -85,11 +88,25 @@ strip = true
 [profile.bench]
 inherits = "release"
 
-# Benchmarks disabled for now
-# [[bench]]
-# name = "mining_performance"
-# harness = false
-# required-features = ["bench"]
+[[bench]]
+name = "mining_performance"
+harness = false
+required-features = ["bench"]
+
+[[bench]]
+name = "protocol_performance"
+harness = false
+required-features = ["bench"]
+
+[[bench]]
+name = "stratum_performance"
+harness = false
+required-features = ["bench"]
+
+[[bench]]
+name = "config_performance"
+harness = false
+required-features = ["bench"]
 
 [lib]
 name = "chainweb_mining_client"
