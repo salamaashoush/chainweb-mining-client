@@ -491,8 +491,8 @@ impl MonitoringSystem {
         // Check various health indicators
         let mut issues = Vec::new();
 
-        // Hash rate check
-        if metrics.hash_rate < config.min_hash_rate {
+        // Hash rate check (only if mining has started)
+        if metrics.hash_rate > 0.0 && metrics.hash_rate < config.min_hash_rate {
             issues.push("Low hash rate");
         }
 

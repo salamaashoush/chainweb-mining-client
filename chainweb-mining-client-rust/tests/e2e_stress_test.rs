@@ -7,7 +7,6 @@ use serde_json::Value;
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::thread;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
 
@@ -64,7 +63,7 @@ impl ChainwebTestNode {
             .stderr(Stdio::piped())
             .spawn()?;
 
-        let mut node = Self {
+        let node = Self {
             process: Some(process),
             endpoint: "http://localhost:1848".to_string(),
         };
@@ -492,7 +491,7 @@ impl StressTestCoordinator {
     }
 
     /// Monitor node health during stress testing
-    async fn monitor_node_health(&self) -> Result<(), Box<dyn std::error::Error>> {
+    async fn monitor_node_health(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         println!("📊 Starting node health monitoring...");
 
         while self.running.load(Ordering::Relaxed) {
@@ -626,14 +625,14 @@ async fn test_e2e_comprehensive_stress() {
         ..Default::default()
     };
 
-    let coordinator = StressTestCoordinator::new(config)
+    let coordinator = Arc::new(StressTestCoordinator::new(config)
         .await
-        .expect("Failed to create stress test coordinator");
+        .expect("Failed to create stress test coordinator"));
 
     // Start node health monitoring
     let health_monitor = {
-        let coordinator_ref = &coordinator;
-        tokio::spawn(async move { coordinator_ref.monitor_node_health().await })
+        let coordinator_clone = Arc::clone(&coordinator);
+        tokio::spawn(async move { coordinator_clone.monitor_node_health().await })
     };
 
     // Run all stress tests sequentially
