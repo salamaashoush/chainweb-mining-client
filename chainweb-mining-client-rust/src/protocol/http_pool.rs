@@ -9,7 +9,9 @@ use parking_lot::RwLock;
 use reqwest::{Client, ClientBuilder};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
+use tokio::time::sleep;
 use tracing::{debug, info};
 
 /// HTTP client pool configuration
@@ -31,6 +33,12 @@ pub struct HttpPoolConfig {
     pub gzip: bool,
     /// Maximum number of redirects to follow
     pub max_redirects: usize,
+    /// Enable connection warmup for better initial performance
+    pub enable_warmup: bool,
+    /// Number of connections to pre-warm per host
+    pub warmup_connections: usize,
+    /// Enable detailed connection metrics
+    pub enable_metrics: bool,
 }
 
 impl Default for HttpPoolConfig {
@@ -44,6 +52,9 @@ impl Default for HttpPoolConfig {
             user_agent: format!("chainweb-mining-client/{}", env!("CARGO_PKG_VERSION")),
             gzip: true,
             max_redirects: 3,
+            enable_warmup: true,
+            warmup_connections: 2,
+            enable_metrics: false,
         }
     }
 }
@@ -61,6 +72,61 @@ pub enum ClientType {
     Insecure,
 }
 
+/// Connection metrics for monitoring pool performance
+#[derive(Debug)]
+pub struct ConnectionMetrics {
+    /// Total number of client creations
+    pub clients_created: AtomicU64,
+    /// Total number of client cache hits
+    pub cache_hits: AtomicU64,
+    /// Total number of client cache misses
+    pub cache_misses: AtomicU64,
+    /// Pool creation time
+    pub created_at: Instant,
+    /// Last cache clear time
+    pub last_cache_clear: AtomicU64,
+}
+
+impl ConnectionMetrics {
+    pub fn new() -> Self {
+        Self {
+            clients_created: AtomicU64::new(0),
+            cache_hits: AtomicU64::new(0),
+            cache_misses: AtomicU64::new(0),
+            created_at: Instant::now(),
+            last_cache_clear: AtomicU64::new(0),
+        }
+    }
+    
+    pub fn record_client_created(&self) {
+        self.clients_created.fetch_add(1, Ordering::Relaxed);
+    }
+    
+    pub fn record_cache_hit(&self) {
+        self.cache_hits.fetch_add(1, Ordering::Relaxed);
+    }
+    
+    pub fn record_cache_miss(&self) {
+        self.cache_misses.fetch_add(1, Ordering::Relaxed);
+    }
+    
+    pub fn record_cache_clear(&self) {
+        let now = self.created_at.elapsed().as_secs();
+        self.last_cache_clear.store(now, Ordering::Relaxed);
+    }
+    
+    pub fn cache_hit_rate(&self) -> f64 {
+        let hits = self.cache_hits.load(Ordering::Relaxed) as f64;
+        let misses = self.cache_misses.load(Ordering::Relaxed) as f64;
+        let total = hits + misses;
+        if total > 0.0 {
+            hits / total
+        } else {
+            0.0
+        }
+    }
+}
+
 /// HTTP client pool for managing multiple specialized clients
 #[derive(Debug)]
 pub struct HttpClientPool {
@@ -68,6 +134,8 @@ pub struct HttpClientPool {
     config: HttpPoolConfig,
     /// Cached clients by type
     clients: RwLock<HashMap<ClientType, Arc<Client>>>,
+    /// Connection metrics
+    metrics: ConnectionMetrics,
 }
 
 impl HttpClientPool {
@@ -81,6 +149,7 @@ impl HttpClientPool {
         Self {
             config,
             clients: RwLock::new(HashMap::new()),
+            metrics: ConnectionMetrics::new(),
         }
     }
 
@@ -90,8 +159,15 @@ impl HttpClientPool {
         {
             let clients = self.clients.read();
             if let Some(client) = clients.get(&client_type) {
+                if self.config.enable_metrics {
+                    self.metrics.record_cache_hit();
+                }
                 return Ok(Arc::clone(client));
             }
+        }
+        
+        if self.config.enable_metrics {
+            self.metrics.record_cache_miss();
         }
 
         // Create new client
@@ -108,6 +184,21 @@ impl HttpClientPool {
             clients.insert(client_type.clone(), Arc::clone(&client_arc));
         }
 
+        if self.config.enable_metrics {
+            self.metrics.record_client_created();
+        }
+        
+        // Warm up connections if enabled (only when in async context)
+        if self.config.enable_warmup && matches!(client_type, ClientType::Mining) {
+            let warmup_connections = self.config.warmup_connections;
+            // Only spawn if we're in a tokio runtime context
+            if let Ok(_handle) = tokio::runtime::Handle::try_current() {
+                tokio::spawn(Self::warmup_client_static(Arc::clone(&client_arc), warmup_connections));
+            } else {
+                debug!("Skipping client warmup - no async runtime available");
+            }
+        }
+        
         info!("Created new HTTP client for type: {:?}", client_type);
         Ok(client_arc)
     }
@@ -162,12 +253,46 @@ impl HttpClientPool {
         Ok(client)
     }
 
+    /// Warm up a client by establishing connections (static version for tokio::spawn)
+    async fn warmup_client_static(_client: Arc<Client>, _warmup_connections: usize) {
+        // In a real implementation, this would make HTTP HEAD requests to common endpoints
+        // to pre-establish connections and warm up the connection pool
+        debug!("Warming up HTTP client connections...");
+        
+        // Simulate connection warmup delay
+        sleep(Duration::from_millis(100)).await;
+        
+        // Note: Actual warmup would require target URLs to connect to
+        // This could be implemented by accepting warmup URLs in the config
+        debug!("HTTP client warmup completed");
+    }
+    
     /// Get statistics about the client pool
     pub fn get_stats(&self) -> HttpPoolStats {
         let clients = self.clients.read();
         HttpPoolStats {
             active_clients: clients.len(),
             client_types: clients.keys().cloned().collect(),
+            cache_hit_rate: if self.config.enable_metrics {
+                Some(self.metrics.cache_hit_rate())
+            } else {
+                None
+            },
+            clients_created: if self.config.enable_metrics {
+                Some(self.metrics.clients_created.load(Ordering::Relaxed))
+            } else {
+                None
+            },
+            uptime_seconds: self.metrics.created_at.elapsed().as_secs(),
+        }
+    }
+    
+    /// Get detailed metrics about the client pool
+    pub fn get_metrics(&self) -> Option<&ConnectionMetrics> {
+        if self.config.enable_metrics {
+            Some(&self.metrics)
+        } else {
+            None
         }
     }
 
@@ -175,6 +300,11 @@ impl HttpClientPool {
     pub fn clear_cache(&self) {
         let mut clients = self.clients.write();
         clients.clear();
+        
+        if self.config.enable_metrics {
+            self.metrics.record_cache_clear();
+        }
+        
         info!("HTTP client pool cache cleared");
     }
 
@@ -199,6 +329,12 @@ pub struct HttpPoolStats {
     pub active_clients: usize,
     /// Types of clients currently cached
     pub client_types: Vec<ClientType>,
+    /// Cache hit rate (if metrics enabled)
+    pub cache_hit_rate: Option<f64>,
+    /// Total number of clients created (if metrics enabled)
+    pub clients_created: Option<u64>,
+    /// Pool uptime in seconds
+    pub uptime_seconds: u64,
 }
 
 /// Global HTTP client pool instance

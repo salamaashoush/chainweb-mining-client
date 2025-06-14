@@ -4,6 +4,7 @@
 //! including Work, Target, Nonce, and ChainId.
 
 mod chain_id;
+mod hash_simd;
 mod nonce;
 mod preemption;
 mod target;
@@ -11,6 +12,7 @@ mod target_arithmetic;
 mod work;
 
 pub use chain_id::ChainId;
+pub use hash_simd::{OptimizedHasher, VectorizedMiner, AdaptiveHasher};
 pub use nonce::Nonce;
 pub use preemption::{WorkPreemptor, PreemptionConfig, PreemptionStrategy, PreemptionStats, PreemptionDecision, PreemptionAction};
 pub use target::Target;
