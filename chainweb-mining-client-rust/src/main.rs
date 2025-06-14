@@ -7,7 +7,7 @@ use chainweb_mining_client::{
     core::{ChainId, WorkPreemptor, PreemptionConfig, PreemptionStrategy, PreemptionDecision},
     error::Result,
     protocol::chainweb::{ChainwebClient, ChainwebClientConfig},
-    utils,
+    utils::{self, monitoring::global_monitoring},
     workers::{
         Worker,
         cpu::{CpuWorker, CpuWorkerConfig},
@@ -105,6 +105,12 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    // Handle monitoring status
+    if args.monitoring_status {
+        print_monitoring_status();
+        return Ok(());
+    }
+
     // Handle key generation
     if args.generate_key {
         generate_key_pair();
@@ -126,6 +132,10 @@ async fn main() -> Result<()> {
 
     // Initialize logging
     utils::init_logging(&config.logging.level, &config.logging.format);
+
+    // Initialize monitoring system
+    let monitoring = global_monitoring();
+    info!("📊 Monitoring system initialized");
 
     info!(
         "Starting Chainweb Mining Client v{}",
@@ -457,4 +467,11 @@ fn print_config(config: &Config, format: &str) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Print current monitoring status
+fn print_monitoring_status() {
+    let monitoring = global_monitoring();
+    let report = monitoring.generate_status_report();
+    println!("{}", report);
 }

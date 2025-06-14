@@ -1,9 +1,11 @@
 //! Utility functions and helpers
 
 pub mod logging;
+pub mod monitoring;
 pub mod units;
 
 pub use logging::{LogContext, MiningMetrics, init_structured_logging};
+pub use monitoring::{MonitoringSystem, PerformanceMetrics, HealthStatus, AlertConfig, global_monitoring, init_monitoring_with_pool};
 
 use tracing_subscriber::EnvFilter;
 

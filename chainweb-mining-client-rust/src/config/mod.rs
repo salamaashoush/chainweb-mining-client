@@ -68,6 +68,10 @@ pub struct Args {
     #[clap(long = "license", help = "Print license of the program and exit")]
     pub license: bool,
 
+    /// Show monitoring status and exit
+    #[clap(long = "monitoring-status", help = "Show monitoring status and exit")]
+    pub monitoring_status: bool,
+
     /// Print the parsed configuration to standard out and exit
     #[clap(
         long = "print-config-as",

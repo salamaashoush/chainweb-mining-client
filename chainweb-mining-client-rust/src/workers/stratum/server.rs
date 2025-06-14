@@ -3,6 +3,7 @@
 use crate::config::StratumDifficulty;
 use crate::core::{Nonce, Target, Work};
 use crate::error::{Error, Result};
+use crate::utils::monitoring::{global_monitoring, MonitoringSystem};
 use crate::workers::{MiningResult, Worker};
 use async_trait::async_trait;
 use dashmap::DashMap;
@@ -10,7 +11,7 @@ use serde_json::Value;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{RwLock, broadcast, mpsc};
@@ -379,6 +380,8 @@ async fn handle_request(
             };
 
             if extranonce2_bytes.len() != extranonce1.nonce2_size().as_bytes() as usize {
+                // Record share rejected
+                global_monitoring().record_share_submitted(false);
                 return StratumResponse::error(req.id, 20, "Invalid extranonce2 size");
             }
 
@@ -431,13 +434,24 @@ async fn handle_request(
 
                     if tx.send(result).await.is_ok() {
                         session.shares_valid += 1;
+                        
+                        // Record share accepted in monitoring
+                        global_monitoring().record_share_submitted(true);
+                        
                         StratumResponse::success(req.id, Value::Bool(true))
                     } else {
+                        // Record share rejected in monitoring
+                        global_monitoring().record_share_submitted(false);
+                        
                         StratumResponse::error(req.id, 20, "Failed to submit share")
                     }
                 } else {
                     // No result channel, just accept the share
                     session.shares_valid += 1;
+                    
+                    // Record share accepted in monitoring
+                    global_monitoring().record_share_submitted(true);
+                    
                     StratumResponse::success(req.id, Value::Bool(true))
                 }
             } else {

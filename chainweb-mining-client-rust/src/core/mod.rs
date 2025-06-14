@@ -58,5 +58,8 @@ mod tests_extended;
 mod tests_property_simple;
 
 #[cfg(test)]
+mod tests_property_comprehensive;
+
+#[cfg(test)]
 mod tests_blockchain_headers;
 

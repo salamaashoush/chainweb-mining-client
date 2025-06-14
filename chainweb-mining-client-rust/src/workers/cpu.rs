@@ -2,6 +2,7 @@
 
 use crate::core::{Nonce, Target, Work, VectorizedMiner};
 use crate::error::Result;
+use crate::utils::monitoring::{global_monitoring, MonitoringSystem};
 use crate::workers::{MiningResult, Worker};
 use async_trait::async_trait;
 use blake2::Digest;
@@ -232,6 +233,11 @@ impl Worker for CpuWorker {
                 let mut pool = vectorized_pool.lock();
                 pool.pop().unwrap_or_else(|| VectorizedMiner::new(batch_size as usize))
             };
+            
+            // Initialize monitoring
+            let monitoring = global_monitoring();
+            let start_time = Instant::now();
+            let mut last_hash_rate_update = Instant::now();
 
             info!("Starting CPU mining with SIMD optimizations");
 
@@ -250,6 +256,9 @@ impl Worker for CpuWorker {
                     &is_mining,
                 ) {
                     info!("Found solution! Nonce: {} (SIMD)", nonce);
+                    
+                    // Record solution found
+                    monitoring.record_solution();
 
                     // Create solved work only when solution is found
                     let mut solved_work = work;
@@ -269,6 +278,21 @@ impl Worker for CpuWorker {
                 // Update counters
                 hash_count.fetch_add(batch_size, Ordering::Relaxed);
                 current_nonce = current_nonce.wrapping_add(batch_size);
+                
+                // Update monitoring metrics periodically
+                let now = Instant::now();
+                if now.duration_since(last_hash_rate_update) >= Duration::from_secs(1) {
+                    let total_hashes = hash_count.load(Ordering::Relaxed);
+                    let elapsed = now.duration_since(start_time).as_secs_f64();
+                    let current_hash_rate = if elapsed > 0.0 {
+                        total_hashes as f64 / elapsed
+                    } else {
+                        0.0
+                    };
+                    
+                    monitoring.record_hash_rate(current_hash_rate);
+                    last_hash_rate_update = now;
+                }
 
                 // Yield occasionally to prevent blocking
                 if current_nonce % (batch_size * 100) == 0 {
