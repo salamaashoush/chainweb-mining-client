@@ -41,23 +41,6 @@ impl RetryPolicy {
         }
     }
 
-    /// Create a conservative retry policy for critical operations
-    pub fn conservative() -> Self {
-        Self {
-            max_attempts: 20,
-            base_delay: Duration::from_millis(50),
-            max_delay: Duration::from_secs(10),
-        }
-    }
-
-    /// Create an aggressive retry policy for non-critical operations
-    pub fn aggressive() -> Self {
-        Self {
-            max_attempts: 5,
-            base_delay: Duration::from_millis(200),
-            max_delay: Duration::from_secs(2),
-        }
-    }
 
     /// Execute an operation with retry logic
     pub async fn execute<F, Fut, T>(&self, mut operation: F) -> Result<T>
@@ -182,14 +165,6 @@ where
     RetryPolicy::default().execute(operation).await
 }
 
-/// Retry a critical operation with conservative policy
-pub async fn retry_critical<F, Fut, T>(operation: F) -> Result<T>
-where
-    F: FnMut() -> Fut,
-    Fut: Future<Output = Result<T>>,
-{
-    RetryPolicy::conservative().execute(operation).await
-}
 
 #[cfg(test)]
 mod tests {

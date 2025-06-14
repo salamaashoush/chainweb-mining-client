@@ -4,7 +4,7 @@
 
 use crate::core::Target;
 use num_bigint::BigUint;
-use num_traits::{Zero, One};
+use num_traits::Zero;
 
 /// Maximum target value (lowest difficulty)
 const MAX_TARGET: [u8; 32] = [0xFF; 32];
@@ -68,26 +68,7 @@ pub fn target_to_difficulty(target: &Target) -> u64 {
     }
 }
 
-/// Calculate the hash rate required for a given difficulty at a target block time
-pub fn difficulty_to_hashrate(difficulty: u64, block_time_secs: u64) -> f64 {
-    if block_time_secs == 0 {
-        return 0.0;
-    }
-    
-    // Approximate hashes needed = difficulty * 2^256 / max_target
-    // Simplified calculation for practical purposes
-    difficulty as f64 / block_time_secs as f64
-}
 
-/// Get the minimum difficulty (easiest target)
-pub fn min_difficulty() -> u64 {
-    1
-}
-
-/// Get the maximum practical difficulty
-pub fn max_difficulty() -> u64 {
-    0xFFFFFFFF // 32-bit max for practical purposes
-}
 
 #[cfg(test)]
 mod tests {
@@ -149,20 +130,7 @@ mod tests {
             original_difficulty, converted_difficulty, ratio);
     }
 
-    #[test]
-    fn test_hashrate_calculation() {
-        let difficulty = 1000;
-        let block_time = 30; // 30 seconds
-        let hashrate = difficulty_to_hashrate(difficulty, block_time);
-        
-        assert_eq!(hashrate, 1000.0 / 30.0);
-    }
 
-    #[test]
-    fn test_difficulty_bounds() {
-        assert_eq!(min_difficulty(), 1);
-        assert_eq!(max_difficulty(), 0xFFFFFFFF);
-    }
 
     #[test]
     fn test_difficulty_ordering_preserves_target_ordering() {

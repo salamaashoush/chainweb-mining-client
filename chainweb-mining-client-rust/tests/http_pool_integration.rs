@@ -4,8 +4,8 @@
 //! performance improvements, and integration with protocol modules.
 
 use chainweb_mining_client::protocol::http_pool::{
-    ClientType, HttpClientPool, HttpPoolConfig, global_http_pool, init_global_http_pool,
-    get_mining_client, get_config_client, get_insecure_client, get_general_client
+    ClientType, HttpClientPool, HttpPoolConfig, global_http_pool,
+    get_mining_client, get_config_client, get_insecure_client
 };
 use std::sync::Arc;
 use std::thread;
@@ -176,7 +176,7 @@ fn test_global_pool_convenience_functions() {
     let mining = get_mining_client().unwrap();
     let config = get_config_client().unwrap();
     let insecure = get_insecure_client().unwrap();
-    let general = get_general_client().unwrap();
+    let general = global_http_pool().get_client(ClientType::General).unwrap();
     
     // All should be valid clients
     assert!(Arc::strong_count(&mining) >= 1);
@@ -189,21 +189,6 @@ fn test_global_pool_convenience_functions() {
     assert!(stats.active_clients >= 4);
 }
 
-#[test]
-fn test_global_pool_initialization() {
-    // This test uses a separate global pool initialization
-    // to avoid interfering with other tests
-    
-    let mut config = HttpPoolConfig::default();
-    config.user_agent = "test-init/1.0".to_string();
-    
-    // Initialize global pool (this might fail if already initialized)
-    let _ = init_global_http_pool(config);
-    
-    // Verify we can get clients from the global pool
-    let client = get_mining_client().unwrap();
-    assert!(Arc::strong_count(&client) >= 1);
-}
 
 #[test]
 fn test_pool_stats_accuracy() {
@@ -260,7 +245,7 @@ fn test_error_handling() {
 #[tokio::test]
 async fn test_async_http_operations() {
     // Test that pooled clients work correctly with async operations
-    let client = get_general_client().unwrap();
+    let client = global_http_pool().get_client(ClientType::General).unwrap();
     
     // Test a simple HTTP request (to httpbin.org which supports CORS)
     let response = client

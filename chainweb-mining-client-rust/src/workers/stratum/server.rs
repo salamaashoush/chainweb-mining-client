@@ -10,7 +10,7 @@ use serde_json::Value;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{RwLock, broadcast, mpsc};
@@ -44,9 +44,6 @@ struct MiningJob {
     work: Work,
     /// Target
     target: Target,
-    /// Creation time
-    #[allow(dead_code)]
-    created_at: SystemTime,
 }
 
 /// Stratum server state
@@ -178,7 +175,6 @@ impl StratumServer {
             id: format!("{:x}", job_id),
             work: work.clone(),
             target,
-            created_at: SystemTime::now(),
         };
 
         // Update current job
@@ -188,17 +184,6 @@ impl StratumServer {
         let _ = self.job_tx.send(job);
     }
 
-    /// Get current difficulty based on configuration
-    #[allow(dead_code)]
-    fn get_difficulty(&self, block_target: &Target) -> Target {
-        match &self.config.difficulty {
-            StratumDifficulty::Block => *block_target,
-            StratumDifficulty::Fixed(zeros) => {
-                // Create target with specified number of leading zeros
-                Target::from_difficulty_bits(*zeros as u32)
-            }
-        }
-    }
 }
 
 /// Handle a client connection
@@ -373,8 +358,8 @@ fn create_job_params(job: &MiningJob) -> Vec<Value> {
         Value::String(hex::encode(job.target.0)),                // nBits
         Value::String(format!(
             "{:x}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_secs()
         )), // nTime

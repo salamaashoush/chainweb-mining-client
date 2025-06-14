@@ -20,14 +20,11 @@ publicKey: test
     let config = Config::from_contents(yaml_content, "test.yaml").unwrap();
     assert_eq!(config.node.url, "api.chainweb.com");
 
-    // Test TOML detection
-    let toml_content = r#"
-[node]
-url = "api.chainweb.com"
-
-[mining]
-public_key = "test"
+    // Test TOML detection (using flat format)
+    let toml_content = r#"node = "api.chainweb.com"
+publicKey = "test"
 account = "k:test"
+worker = "cpu"
 "#;
     let config = Config::from_contents(toml_content, "test.toml").unwrap();
     assert_eq!(config.node.url, "api.chainweb.com");
@@ -40,14 +37,11 @@ fn test_auto_format_detection() {
     let config = Config::from_contents(json_content, "config").unwrap();
     assert_eq!(config.node.url, "api.chainweb.com");
 
-    // Test TOML auto-detection (contains [section])
-    let toml_content = r#"
-[node]
-url = "api.chainweb.com"
-
-[mining]
-public_key = "test"
+    // Test TOML auto-detection (flat format with =)
+    let toml_content = r#"node = "api.chainweb.com"
+publicKey = "test"
 account = "k:test"
+worker = "cpu"
 "#;
     let config = Config::from_contents(toml_content, "config").unwrap();
     assert_eq!(config.node.url, "api.chainweb.com");
@@ -223,29 +217,23 @@ async fn test_config_cascade_with_remote() {
     let mut local_file = NamedTempFile::new().unwrap();
     writeln!(
         local_file,
-        r#"
-[node]
-url = "local.chainweb.com"
-use_tls = false
-
-[mining]
-public_key = "local_key"
+        r#"node = "local.chainweb.com"
+useTls = false
+publicKey = "local_key"
 account = "k:local_key"
-
-[logging]
-level = "error"
-"#
+worker = "cpu"
+threadCount = 2
+logLevel = "error""#
     ).unwrap();
     
     // Mock a remote config that will override some values
-    let remote_config = r#"
-[node]
-url = "remote.chainweb.com"
-use_tls = true
-
-[logging]
-level = "debug"
-"#;
+    let remote_config = r#"node = "remote.chainweb.com"
+useTls = true
+publicKey = "local_key"
+account = "k:local_key"
+worker = "cpu"
+threadCount = 4
+logLevel = "debug""#;
     
     let mock = server
         .mock("GET", "/override.toml")

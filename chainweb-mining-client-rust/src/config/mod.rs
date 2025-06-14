@@ -343,12 +343,21 @@ pub struct NodeConfig {
 impl NodeConfig {
     /// Merge another node config into this one
     fn merge(&mut self, other: NodeConfig) {
-        // URL: always override with the new one
-        self.url = other.url;
+        // Determine if we should update TLS before consuming the URL
+        let should_update_tls = other.use_tls != !other.url.starts_with("http://");
         
-        // TLS settings: override with new values
-        self.use_tls = other.use_tls;
-        self.insecure = other.insecure;
+        // URL: only override if it's not the default localhost value
+        if other.url != "localhost:1848" {
+            self.url = other.url;
+        }
+        
+        // TLS settings: only override if they differ from defaults
+        if should_update_tls {
+            self.use_tls = other.use_tls;
+        }
+        if other.insecure {
+            self.insecure = other.insecure;
+        }
         
         // Timeout: use other if it's not the default
         if other.timeout_secs != default_timeout() {
@@ -957,11 +966,15 @@ impl Config {
         }
 
         // Override mining settings
-        if let Some(account) = &args.account {
-            self.mining.account = account.clone();
-        }
         if let Some(public_key) = &args.public_key {
             self.mining.public_key = public_key.clone();
+            // Auto-generate account from public key if not explicitly set
+            if args.account.is_none() {
+                self.mining.account = format!("k:{}", public_key);
+            }
+        }
+        if let Some(account) = &args.account {
+            self.mining.account = account.clone();
         }
 
         // Override logging

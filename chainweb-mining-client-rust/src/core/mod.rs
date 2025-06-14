@@ -53,3 +53,6 @@ mod tests_extended;
 #[cfg(test)]
 mod tests_property_simple;
 
+#[cfg(test)]
+mod tests_blockchain_headers;
+

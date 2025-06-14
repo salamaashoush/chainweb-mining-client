@@ -3,7 +3,7 @@
 use crate::core::{ChainId, Target, Work};
 use crate::error::{Error, Result};
 use crate::protocol::http_pool::{get_mining_client, get_insecure_client};
-use crate::protocol::retry::{retry_http, retry_critical};
+use crate::protocol::retry::retry_http;
 use eventsource_stream::Eventsource;
 use futures::StreamExt;
 use reqwest::Client;
@@ -210,7 +210,7 @@ impl ChainwebClient {
 
     /// Submit a solution to the node with retry logic
     pub async fn submit_solution(&self, work: &Work) -> Result<()> {
-        retry_critical(|| self.submit_solution_once(work)).await
+        retry_http(|| self.submit_solution_once(work)).await
     }
 
     /// Submit a solution to the node (single attempt)

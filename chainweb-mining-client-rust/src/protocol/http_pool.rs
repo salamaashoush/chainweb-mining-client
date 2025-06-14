@@ -209,15 +209,6 @@ pub fn global_http_pool() -> &'static HttpClientPool {
     HTTP_POOL.get_or_init(|| HttpClientPool::new())
 }
 
-/// Initialize the global HTTP client pool with custom configuration
-pub fn init_global_http_pool(config: HttpPoolConfig) -> Result<()> {
-    let pool = HttpClientPool::with_config(config);
-    HTTP_POOL.set(pool).map_err(|_| {
-        Error::config("Global HTTP pool already initialized".to_string())
-    })?;
-    info!("Global HTTP client pool initialized");
-    Ok(())
-}
 
 /// Convenience function to get a mining client
 pub fn get_mining_client() -> Result<Arc<Client>> {
@@ -234,10 +225,6 @@ pub fn get_insecure_client() -> Result<Arc<Client>> {
     global_http_pool().get_client(ClientType::Insecure)
 }
 
-/// Convenience function to get a general client
-pub fn get_general_client() -> Result<Arc<Client>> {
-    global_http_pool().get_client(ClientType::General)
-}
 
 #[cfg(test)]
 mod tests {
@@ -310,7 +297,7 @@ mod tests {
         // These functions should not panic and should return valid clients
         let _mining = get_mining_client().unwrap();
         let _config = get_config_client().unwrap();
-        let _general = get_general_client().unwrap();
+        let _general = global_http_pool().get_client(ClientType::General).unwrap();
         let _insecure = get_insecure_client().unwrap();
         
         let stats = global_http_pool().get_stats();

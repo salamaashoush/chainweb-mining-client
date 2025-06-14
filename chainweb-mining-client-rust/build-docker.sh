@@ -16,6 +16,12 @@ set -e
 
 # --- Configuration ---
 
+# Get the script directory
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+
+# Change to script directory
+cd "$SCRIPT_DIR"
+
 # Use the provided tag or default to "latest"
 TAG=${1:-latest}
 
@@ -63,15 +69,14 @@ else
     docker buildx use "$BUILDER_NAME"
 fi
 
-# Build the image locally first (for testing)
+# Build the image
 echo ""
-echo "Building image locally for testing..."
+echo "Building and pushing multi-arch image..."
 docker buildx build \
     --platform "${PLATFORMS}" \
     --file "${DOCKERFILE}" \
     --tag "${IMAGE_NAME}${IMAGE_SUFFIX}:${TAG}" \
     --tag "${IMAGE_NAME}${IMAGE_SUFFIX}:${VERSION}" \
-    --output "type=docker" \
     --push \
     .
 

@@ -4,7 +4,7 @@
 
 use chainweb_mining_client::{
     config::{Args, Config, WorkerConfig},
-    core::{ChainId, WorkPreemptor, PreemptionConfig, PreemptionStrategy, PreemptionDecision, PreemptionAction},
+    core::{ChainId, WorkPreemptor, PreemptionConfig, PreemptionStrategy, PreemptionDecision},
     error::Result,
     protocol::chainweb::{ChainwebClient, ChainwebClientConfig},
     utils,
@@ -337,7 +337,7 @@ async fn main() -> Result<()> {
                                         } else {
                                             // Update current work/target if preemption succeeded
                                             current_work = new_work;
-                                            current_target = new_target;
+                                            current_target = new_target; 
                                         }
                                     }
                                     PreemptionDecision::Skip(reason) => {

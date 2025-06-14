@@ -8,7 +8,7 @@ mod protocol;
 mod server;
 mod session;
 
-pub use difficulty::{difficulty_to_target, target_to_difficulty, min_difficulty, max_difficulty};
+pub use difficulty::{difficulty_to_target, target_to_difficulty};
 pub use hex::{encode_hex, decode_hex, encode_hex_prefixed, decode_hex_flexible};
 pub use job::{ClientWorker, JobId, JobManager, MiningJob, SharedJobManager};
 pub use nonce::{Nonce1, Nonce2, NonceSize, compose_nonce, split_nonce};

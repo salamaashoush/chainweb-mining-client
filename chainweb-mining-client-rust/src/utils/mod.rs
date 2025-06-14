@@ -2,7 +2,6 @@
 
 pub mod units;
 
-use std::time::{SystemTime, UNIX_EPOCH};
 use tracing_subscriber::EnvFilter;
 
 /// Initialize logging based on configuration
@@ -26,13 +25,6 @@ pub fn init_logging(level: &str, format: &str) {
     }
 }
 
-/// Get current timestamp in seconds
-pub fn current_timestamp() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards")
-        .as_secs()
-}
 
 /// Format hashrate for display
 pub fn format_hashrate(hashrate: u64) -> String {
@@ -49,30 +41,11 @@ pub fn format_hashrate(hashrate: u64) -> String {
     }
 }
 
-/// Convert difficulty to target bytes (simplified)
-pub fn difficulty_to_target(difficulty: f64) -> [u8; 32] {
-    // This is a simplified conversion
-    // In practice, you'd need the exact formula used by Chainweb
-    let max_target = u64::MAX as f64;
-    let target_value = (max_target / difficulty) as u64;
-
-    let mut bytes = [0xFFu8; 32];
-    bytes[24..32].copy_from_slice(&target_value.to_be_bytes());
-
-    bytes
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_current_timestamp() {
-        let ts1 = current_timestamp();
-        std::thread::sleep(std::time::Duration::from_millis(10));
-        let ts2 = current_timestamp();
-        assert!(ts2 >= ts1);
-    }
 
     #[test]
     fn test_format_hashrate() {
@@ -83,15 +56,4 @@ mod tests {
         assert_eq!(format_hashrate(4_500_000_000_000), "4.50 TH/s");
     }
 
-    #[test]
-    fn test_difficulty_to_target() {
-        let target = difficulty_to_target(1.0);
-        assert_eq!(target[0..24], [0xFF; 24]);
-
-        let harder_target = difficulty_to_target(2.0);
-        // Should be roughly half the value
-        let value1 = u64::from_be_bytes(target[24..32].try_into().unwrap());
-        let value2 = u64::from_be_bytes(harder_target[24..32].try_into().unwrap());
-        assert!(value2 < value1);
-    }
 }

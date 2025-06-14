@@ -1,6 +1,6 @@
 [package]
 name = "chainweb-mining-client"
-version = "0.1.0"
+version = "0.5.0"
 edition = "2024"
 authors = ["Chainweb Mining Client Contributors"]
 description = "A high-performance Rust implementation of the Chainweb mining client"
