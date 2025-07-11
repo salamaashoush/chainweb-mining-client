@@ -1,7 +1,7 @@
 //! Stratum server implementation
 
 use crate::config::StratumDifficulty;
-use crate::core::{Nonce, Target, Work};
+use crate::core::{adjust_difficulty, Difficulty, HashRate, Nonce, Period, Target, Work};
 use crate::error::{Error, Result};
 use crate::utils::monitoring::global_monitoring;
 use crate::workers::{MiningResult, Worker};
@@ -13,17 +13,25 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpStream, tcp::OwnedWriteHalf};
 use tokio::sync::{RwLock, broadcast, mpsc};
 use tokio::time::interval;
-use tracing::{error, info, warn};
+use tracing::{error, info, warn, debug};
 
 use super::nonce::{Nonce1, Nonce2, NonceSize, compose_nonce};
-use super::protocol::*;
+use super::protocol::{StratumErrorCode, *};
 use super::session::*;
 
+/// Constants for dynamic difficulty adjustment
+const TARGET_PERIOD: f64 = 10.0;  // Target 10 seconds between shares
+const PERIOD_TOLERANCE: f64 = 0.25;  // 25% tolerance before adjusting
+const MAX_SESSION_TARGET_LEVEL: u8 = 42;  // Minimum difficulty level
+
+/// Authorization callback type
+/// Returns Ok(()) if authorized, Err(message) if not
+pub type AuthorizeCallback = Box<dyn Fn(&str, &str) -> std::result::Result<(), String> + Send + Sync>;
+
 /// Stratum server configuration
-#[derive(Debug, Clone)]
 pub struct StratumServerConfig {
     /// Listen port
     pub port: u16,
@@ -35,6 +43,8 @@ pub struct StratumServerConfig {
     pub difficulty: StratumDifficulty,
     /// Job emission rate in milliseconds
     pub rate_ms: u64,
+    /// Optional authorization callback
+    pub authorize_callback: Option<AuthorizeCallback>,
 }
 
 /// Current mining job
@@ -46,6 +56,14 @@ struct MiningJob {
     work: Work,
     /// Target
     target: Target,
+}
+
+impl MiningJob {
+    /// Increment the job time by the given microseconds
+    /// This matches Haskell's incrementJobTime function
+    pub fn increment_job_time(&mut self, micros: i64) {
+        self.work.increment_time_micros(micros);
+    }
 }
 
 /// Stratum server state
@@ -62,6 +80,10 @@ struct ServerState {
     shutdown: AtomicBool,
     /// Result channel for submitted shares
     result_tx: RwLock<Option<mpsc::Sender<MiningResult>>>,
+    /// Difficulty configuration
+    difficulty_config: StratumDifficulty,
+    /// Authorization callback
+    authorize_callback: Option<AuthorizeCallback>,
 }
 
 /// Stratum server for ASIC miners
@@ -83,7 +105,14 @@ impl StratumServer {
         let (job_tx, _) = broadcast::channel(100);
 
         Self {
-            config,
+            config: StratumServerConfig {
+                port: config.port,
+                host: config.host.clone(),
+                max_connections: config.max_connections,
+                difficulty: config.difficulty.clone(),
+                rate_ms: config.rate_ms,
+                authorize_callback: None, // Callbacks can't be cloned, so we don't store it here
+            },
             state: Arc::new(ServerState {
                 sessions: DashMap::new(),
                 current_job: RwLock::new(None),
@@ -91,6 +120,8 @@ impl StratumServer {
                 total_hashrate: AtomicU64::new(0),
                 shutdown: AtomicBool::new(false),
                 result_tx: RwLock::new(None),
+                difficulty_config: config.difficulty.clone(),
+                authorize_callback: config.authorize_callback,
             }),
             job_tx,
             result_tx: None,
@@ -153,6 +184,9 @@ impl StratumServer {
         tokio::spawn(async move {
             let mut ticker = interval(rate);
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            
+            let mut last_job_update = std::time::Instant::now();
+            let job_update_interval = Duration::from_secs(30); // Update job time every 30 seconds
 
             loop {
                 ticker.tick().await;
@@ -161,12 +195,28 @@ impl StratumServer {
                     break;
                 }
 
+                // Check if we need to update job time
+                let now = std::time::Instant::now();
+                let should_update_time = now.duration_since(last_job_update) >= job_update_interval;
+
                 // Get current job
                 let job = state.current_job.read().await.clone();
 
-                if let Some(job) = job {
+                if let Some(mut current_job) = job {
+                    // Update job time if needed
+                    if should_update_time {
+                        let micros_to_add = job_update_interval.as_micros() as i64;
+                        current_job.increment_job_time(micros_to_add);
+                        
+                        // Update the stored job
+                        *state.current_job.write().await = Some(current_job.clone());
+                        last_job_update = now;
+                        
+                        debug!("Updated job time by {} microseconds", micros_to_add);
+                    }
+                    
                     // Emit job to all clients
-                    let _ = job_tx.send(job);
+                    let _ = job_tx.send(current_job);
                 }
             }
         })
@@ -203,11 +253,17 @@ async fn handle_client(
     let (reader, mut writer) = stream.into_split();
     let mut reader = BufReader::new(reader);
 
-    // Create session
+    // Create session with initial difficulty based on config
     let extranonce1 = generate_extranonce1();
+    let initial_difficulty = match &state.difficulty_config {
+        StratumDifficulty::Block => 1.0, // Will be updated with actual work
+        StratumDifficulty::Fixed(level) => 2f64.powi(*level as i32),
+        StratumDifficulty::Period(_) => 1.0, // Start with low difficulty, will adjust
+    };
+    
     let session = Arc::new(RwLock::new(StratumSession::new(
         extranonce1,
-        1.0, // Initial difficulty
+        initial_difficulty,
     )));
     let session_id = session.read().await.id;
 
@@ -239,6 +295,7 @@ async fn handle_client(
                                     &session,
                                     &extranonce1,
                                     &state,
+                                    &mut writer,
                                 ).await;
 
                                 let json = serde_json::to_string(&response)? + "\n";
@@ -268,6 +325,35 @@ async fn handle_client(
 
                     let json = serde_json::to_string(&notify)? + "\n";
                     writer.write_all(json.as_bytes()).await?;
+                    
+                    // If this is the first job and we're using period-based difficulty,
+                    // set initial session target
+                    let mut session = session.write().await;
+                    if session.session_target.is_none() {
+                        match &state.difficulty_config {
+                            StratumDifficulty::Block => {
+                                session.session_target = Some(job.target);
+                                session.difficulty = Difficulty::from(job.target).0;
+                            }
+                            StratumDifficulty::Fixed(level) => {
+                                let target = Target::mk_target_level(*level);
+                                session.session_target = Some(target);
+                                session.difficulty = Difficulty::from(target).0;
+                                // Send initial difficulty
+                                drop(session);
+                                send_set_target(&mut writer, &target).await?;
+                            }
+                            StratumDifficulty::Period(_) => {
+                                // Start with a reasonable initial difficulty
+                                let initial_target = Target::mk_target_level(20); // Reasonable starting point
+                                session.session_target = Some(initial_target);
+                                session.difficulty = Difficulty::from(initial_target).0;
+                                // Send initial difficulty
+                                drop(session);
+                                send_set_target(&mut writer, &initial_target).await?;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -287,6 +373,7 @@ async fn handle_request(
     session: &Arc<RwLock<StratumSession>>,
     extranonce1: &Nonce1,
     state: &Arc<ServerState>,
+    writer: &mut OwnedWriteHalf,
 ) -> StratumResponse {
     match req.method_enum() {
         StratumMethod::Subscribe => {
@@ -309,25 +396,45 @@ async fn handle_request(
 
         StratumMethod::Authorize => {
             // mining.authorize("username", "password")
-            if !req.params.is_empty() {
-                if let Some(Value::String(username)) = req.params.first() {
-                    let mut session = session.write().await;
-                    session.worker_name = Some(username.clone());
-                    *authorized = true;
-
-                    StratumResponse::success(req.id, Value::Bool(true))
+            if req.params.len() >= 1 {
+                let username = match req.params[0].as_str() {
+                    Some(u) => u,
+                    None => return StratumResponse::error(req.id, 20, "Invalid username"),
+                };
+                
+                let password = req.params.get(1)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                
+                // Check authorization if callback is provided
+                if let Some(ref callback) = state.authorize_callback {
+                    match callback(username, password) {
+                        Ok(()) => {
+                            let mut session = session.write().await;
+                            session.worker_name = Some(username.to_string());
+                            *authorized = true;
+                            StratumResponse::success(req.id, Value::Bool(true))
+                        }
+                        Err(msg) => {
+                            StratumResponse::error_with_code_and_message(req.id, StratumErrorCode::UnauthorizedWorker, &msg)
+                        }
+                    }
                 } else {
-                    StratumResponse::error(req.id, 20, "Invalid username")
+                    // No callback, always authorize
+                    let mut session = session.write().await;
+                    session.worker_name = Some(username.to_string());
+                    *authorized = true;
+                    StratumResponse::success(req.id, Value::Bool(true))
                 }
             } else {
-                StratumResponse::error(req.id, 20, "Missing username")
+                StratumResponse::error_with_code_and_message(req.id, StratumErrorCode::Other, "Missing username")
             }
         }
 
         StratumMethod::Submit => {
             // mining.submit("username", "job_id", "extranonce2", "ntime", "nonce")
             if !*authorized {
-                return StratumResponse::error(req.id, 24, "Unauthorized worker");
+                return StratumResponse::error_with_code(req.id, StratumErrorCode::UnauthorizedWorker);
             }
 
             // Parse submit parameters
@@ -367,7 +474,7 @@ async fn handle_request(
                 Some(j) if j.id == job_id => j.clone(),
                 _ => {
                     drop(current_job);
-                    return StratumResponse::error(req.id, 21, "Job not found");
+                    return StratumResponse::error_with_code(req.id, StratumErrorCode::JobNotFound);
                 }
             };
             drop(current_job);
@@ -424,42 +531,65 @@ async fn handle_request(
                 // Compute the hash for the modified work
                 let hash = modified_work.hash();
 
-                // Submit the result if we have a channel
-                if let Some(ref tx) = *state.result_tx.read().await {
-                    let result = MiningResult {
-                        work: modified_work,
-                        nonce: Nonce::new(submitted_nonce),
-                        hash,
-                    };
-
-                    if tx.send(result).await.is_ok() {
-                        session.shares_valid += 1;
-
-                        // Record share accepted in monitoring
-                        global_monitoring().record_share_submitted(true);
-
-                        StratumResponse::success(req.id, Value::Bool(true))
-                    } else {
-                        // Record share rejected in monitoring
-                        global_monitoring().record_share_submitted(false);
-
-                        StratumResponse::error(req.id, 20, "Failed to submit share")
-                    }
-                } else {
-                    // No result channel, just accept the share
-                    session.shares_valid += 1;
-
-                    // Record share accepted in monitoring
-                    global_monitoring().record_share_submitted(true);
-
-                    StratumResponse::success(req.id, Value::Bool(true))
+                // Get session target (or job target if not set)
+                let session_target = session.session_target.as_ref().unwrap_or(&job.target);
+                
+                // Check if share meets session difficulty
+                if !session_target.meets_target(&hash.into()) {
+                    // Share doesn't meet session difficulty
+                    global_monitoring().record_share_submitted(false);
+                    return StratumResponse::error_with_code(req.id, StratumErrorCode::LowDifficultyShare);
                 }
+
+                // Check if share meets job target (potential block)
+                let is_block = job.target.meets_target(&hash.into());
+
+                // Submit the result if we have a channel and it's a potential block
+                if is_block {
+                    if let Some(ref tx) = *state.result_tx.read().await {
+                        let result = MiningResult {
+                            work: modified_work,
+                            nonce: Nonce::new(submitted_nonce),
+                            hash,
+                        };
+
+                        if tx.send(result).await.is_err() {
+                            // Record share rejected in monitoring
+                            global_monitoring().record_share_submitted(false);
+                            return StratumResponse::error(req.id, 20, "Failed to submit share");
+                        }
+                    }
+                }
+
+                // Share is valid
+                session.shares_valid += 1;
+
+                // Update hash rate and difficulty for dynamic adjustment
+                if matches!(state.difficulty_config, StratumDifficulty::Period(_)) {
+                    // Need to clone values to avoid holding the write lock
+                    let difficulty_config = state.difficulty_config.clone();
+                    
+                    // Update session target if needed
+                    if let Err(e) = update_session_target(
+                        &mut session,
+                        &job,
+                        writer,
+                        &difficulty_config,
+                    ).await {
+                        warn!("Failed to update session target: {}", e);
+                    }
+                }
+
+                // Record share accepted in monitoring
+                global_monitoring().record_share_submitted(true);
+
+                StratumResponse::success(req.id, Value::Bool(true))
             } else {
                 StratumResponse::error(req.id, 20, "Invalid work size")
             }
         }
 
-        _ => StratumResponse::error(req.id, 20, "Method not supported"),
+        _ => StratumResponse::error_with_code_and_message(req.id, StratumErrorCode::Other, "Method not supported"),
     }
 }
 
@@ -470,6 +600,101 @@ fn generate_extranonce1() -> Nonce1 {
     // Convert bytes to u64 (big-endian)
     let value = u32::from_be_bytes(bytes) as u64;
     Nonce1::new(NonceSize::new(4).unwrap(), value).unwrap()
+}
+
+/// Send mining.set_target notification to client
+async fn send_set_target(writer: &mut OwnedWriteHalf, target: &Target) -> Result<()> {
+    let params = vec![Value::String(target.to_hex())];
+    let notify = StratumNotification::new("mining.set_target", params);
+    
+    let json = serde_json::to_string(&notify)? + "\n";
+    writer.write_all(json.as_bytes()).await?;
+    writer.flush().await?;
+    
+    Ok(())
+}
+
+/// Get new session target based on difficulty strategy
+fn get_new_session_target(
+    difficulty_config: &StratumDifficulty,
+    current_hash_rate: HashRate,
+    current_target: &Target,
+    job_target: &Target,
+) -> Option<Target> {
+    match difficulty_config {
+        StratumDifficulty::Block => None, // Use job target
+        StratumDifficulty::Fixed(level) => {
+            let new_target = Target::mk_target_level(*level);
+            if &new_target != current_target {
+                Some(new_target)
+            } else {
+                None
+            }
+        }
+        StratumDifficulty::Period(target_period) => {
+            // Calculate new target based on hash rate
+            let current_difficulty = Difficulty::from(*current_target);
+            let new_difficulty = adjust_difficulty(
+                PERIOD_TOLERANCE,
+                current_hash_rate,
+                Period(*target_period),
+                current_difficulty,
+            );
+            
+            let candidate = new_difficulty.to_target().leveled();
+            
+            // Ensure target is between job target and max session target
+            let max_session_target = Target::mk_target_level(MAX_SESSION_TARGET_LEVEL);
+            
+            // The final target must be harder than max_session_target but easier than job_target
+            let new_target = if candidate.meets_target(job_target.as_bytes()) {
+                *job_target
+            } else if max_session_target.meets_target(candidate.as_bytes()) {
+                max_session_target
+            } else {
+                candidate
+            };
+            
+            if &new_target != current_target {
+                Some(new_target)
+            } else {
+                None
+            }
+        }
+    }
+}
+
+/// Update session target after valid share
+async fn update_session_target(
+    session: &mut StratumSession,
+    job: &MiningJob,
+    writer: &mut OwnedWriteHalf,
+    difficulty_config: &StratumDifficulty,
+) -> Result<()> {
+    // Update hash rate estimate
+    session.update_hash_rate(session.difficulty);
+    
+    // Check if we need to adjust difficulty
+    if let Some(new_target) = get_new_session_target(
+        difficulty_config,
+        HashRate(session.estimated_hashrate),
+        session.session_target.as_ref().unwrap_or(&job.target),
+        &job.target,
+    ) {
+        // Update session target
+        session.session_target = Some(new_target);
+        session.difficulty = Difficulty::from(new_target).0;
+        
+        // Send mining.set_target notification
+        send_set_target(writer, &new_target).await?;
+        
+        debug!(
+            "Updated session {} difficulty to {} (hashrate: {})",
+            session.id, session.difficulty, session.estimated_hashrate
+        );
+    }
+    
+    Ok(())
 }
 
 /// Create job parameters for mining.notify
@@ -509,9 +734,16 @@ impl Worker for StratumServer {
             *tx = Some(result_tx.clone());
         }
 
-        // Store result channel
+        // Create a new server instance for the spawn (without callback since it's already in state)
         let server = Self {
-            config: self.config.clone(),
+            config: StratumServerConfig {
+                port: self.config.port,
+                host: self.config.host.clone(),
+                max_connections: self.config.max_connections,
+                difficulty: self.config.difficulty.clone(),
+                rate_ms: self.config.rate_ms,
+                authorize_callback: None,
+            },
             state: Arc::clone(&self.state),
             job_tx: self.job_tx.clone(),
             result_tx: Some(result_tx),

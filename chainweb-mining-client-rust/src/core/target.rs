@@ -136,6 +136,69 @@ impl Target {
 
         (u64::MAX as f64) / (value as f64)
     }
+
+    /// Create a target from a difficulty level (number of leading zeros)
+    /// This matches Haskell's mkTargetLevel function
+    pub fn mk_target_level(level: u8) -> Self {
+        // level is u8, so max value is 255
+        if level == 255 {
+            return Self([0u8; 32]);
+        }
+
+        // Target = 2^(256 - level) - 1
+        let mut bytes = [0xFFu8; 32];
+        
+        let full_bytes = level / 8;
+        let remaining_bits = level % 8;
+        
+        // Clear the leading bytes (big-endian in the actual value)
+        // But since we store in little-endian, we clear from the end
+        for i in 0..full_bytes.min(32) {
+            bytes[31 - i as usize] = 0;
+        }
+        
+        // Handle partial byte
+        if full_bytes < 32 && remaining_bits > 0 {
+            let byte_index = 31 - full_bytes as usize;
+            bytes[byte_index] = 0xFF >> remaining_bits;
+        }
+        
+        Self(bytes)
+    }
+
+    /// Get the difficulty level (leading zeros) from a target
+    /// This matches Haskell's getTargetLevel function
+    pub fn get_target_level(&self) -> Option<u8> {
+        // Count leading zero bits (from most significant byte in little-endian)
+        let mut leading_zeros = 0u8;
+        
+        // Start from the most significant byte (last in little-endian)
+        for &byte in self.0.iter().rev() {
+            if byte == 0 {
+                leading_zeros += 8;
+            } else {
+                // Count leading zeros in this byte
+                leading_zeros += byte.leading_zeros() as u8;
+                break;
+            }
+        }
+        
+        // Special case: all zeros (max 255 for u8)
+        if leading_zeros == 255 {
+            return Some(255);
+        }
+        
+        Some(leading_zeros)
+    }
+
+    /// Round target to nearest power of 2 (creates a "leveled" target)
+    /// This matches Haskell's leveled function
+    pub fn leveled(&self) -> Self {
+        match self.get_target_level() {
+            Some(level) => Self::mk_target_level(level),
+            None => *self,
+        }
+    }
 }
 
 /// Check if a work meets the given target using Blake2s-256 hash

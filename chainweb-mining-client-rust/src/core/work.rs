@@ -65,14 +65,28 @@ impl Work {
         target.meets_target(&hash)
     }
 
-    /// Update the timestamp in the work (if supported)
-    /// The timestamp is typically at a fixed offset in the header
+    /// Update the timestamp in the work
+    /// The timestamp is at offset 8 in the Chainweb header format
     pub fn update_timestamp(&mut self, timestamp: u64) {
-        // This is a simplified implementation
-        // The actual offset would depend on the Chainweb header format
-        const TIMESTAMP_OFFSET: usize = 8; // Example offset
+        const TIMESTAMP_OFFSET: usize = 8;
         self.bytes[TIMESTAMP_OFFSET..TIMESTAMP_OFFSET + 8]
             .copy_from_slice(&timestamp.to_le_bytes());
+    }
+    
+    /// Get the current timestamp from the work header
+    pub fn get_timestamp(&self) -> u64 {
+        const TIMESTAMP_OFFSET: usize = 8;
+        let mut bytes = [0u8; 8];
+        bytes.copy_from_slice(&self.bytes[TIMESTAMP_OFFSET..TIMESTAMP_OFFSET + 8]);
+        u64::from_le_bytes(bytes)
+    }
+    
+    /// Increment the time value in the work header by the given number of microseconds
+    /// This matches Haskell's incrementTimeMicros function
+    pub fn increment_time_micros(&mut self, micros: i64) {
+        let current_time = self.get_timestamp();
+        let new_time = (current_time as i64).saturating_add(micros) as u64;
+        self.update_timestamp(new_time);
     }
 
     /// Create a hex representation of the work

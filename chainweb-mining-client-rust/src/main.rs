@@ -221,6 +221,7 @@ async fn main() -> Result<()> {
                 max_connections: *max_connections,
                 difficulty: difficulty.clone(),
                 rate_ms: *rate_ms,
+                authorize_callback: None, // No custom authorization by default
             };
             Arc::new(chainweb_mining_client::workers::stratum::StratumServer::new(stratum_config))
         }

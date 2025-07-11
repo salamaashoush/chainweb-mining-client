@@ -3,6 +3,42 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// Standard Stratum error codes
+#[derive(Debug, Clone, Copy)]
+pub enum StratumErrorCode {
+    /// Other/Unknown error
+    Other = 20,
+    /// Job not found
+    JobNotFound = 21,
+    /// Duplicate share
+    DuplicateShare = 22,
+    /// Low difficulty share
+    LowDifficultyShare = 23,
+    /// Unauthorized worker
+    UnauthorizedWorker = 24,
+    /// Not subscribed
+    NotSubscribed = 25,
+}
+
+impl StratumErrorCode {
+    /// Get the numeric error code
+    pub fn code(&self) -> i64 {
+        *self as i64
+    }
+    
+    /// Get a standard error message
+    pub fn message(&self) -> &'static str {
+        match self {
+            Self::Other => "Other/Unknown error",
+            Self::JobNotFound => "Job not found",
+            Self::DuplicateShare => "Duplicate share",
+            Self::LowDifficultyShare => "Low difficulty share",
+            Self::UnauthorizedWorker => "Unauthorized worker",
+            Self::NotSubscribed => "Not subscribed",
+        }
+    }
+}
+
 /// Stratum protocol methods
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StratumMethod {
@@ -113,6 +149,16 @@ impl StratumResponse {
                 Value::Null,
             ])),
         }
+    }
+    
+    /// Create an error response using a standard error code
+    pub fn error_with_code(id: Value, error_code: StratumErrorCode) -> Self {
+        Self::error(id, error_code.code() as i32, error_code.message())
+    }
+    
+    /// Create an error response with a custom message but standard error code
+    pub fn error_with_code_and_message(id: Value, error_code: StratumErrorCode, message: &str) -> Self {
+        Self::error(id, error_code.code() as i32, message)
     }
 }
 

@@ -17,6 +17,8 @@ pub enum StratumDifficulty {
     Block,
     /// Fixed difficulty (number of leading zeros)
     Fixed(u8),
+    /// Dynamic difficulty adjustment based on target period (seconds)
+    Period(f64),
 }
 
 impl FromStr for StratumDifficulty {
@@ -26,17 +28,29 @@ impl FromStr for StratumDifficulty {
         match s {
             "block" => Ok(StratumDifficulty::Block),
             n => {
-                let difficulty = n
-                    .parse::<u16>()
-                    .map_err(|_| Error::config_invalid_value("stratum_difficulty", n, "number or 'block'"))?;
-                if difficulty > 256 {
-                    return Err(Error::config_invalid_value(
-                        "stratum_difficulty",
-                        difficulty.to_string(),
-                        "value between 0 and 256"
-                    ));
+                // Try to parse as integer first (for fixed difficulty)
+                if let Ok(difficulty) = n.parse::<u16>() {
+                    if difficulty > 256 {
+                        return Err(Error::config_invalid_value(
+                            "stratum_difficulty",
+                            difficulty.to_string(),
+                            "value between 0 and 256"
+                        ));
+                    }
+                    Ok(StratumDifficulty::Fixed(difficulty as u8))
+                } else if let Ok(period) = n.parse::<f64>() {
+                    // Try to parse as float for period-based difficulty
+                    if period <= 0.0 {
+                        return Err(Error::config_invalid_value(
+                            "stratum_difficulty",
+                            period.to_string(),
+                            "positive number (seconds)"
+                        ));
+                    }
+                    Ok(StratumDifficulty::Period(period))
+                } else {
+                    Err(Error::config_invalid_value("stratum_difficulty", n, "number, 'block', or period in seconds"))
                 }
-                Ok(StratumDifficulty::Fixed(difficulty as u8))
             }
         }
     }
