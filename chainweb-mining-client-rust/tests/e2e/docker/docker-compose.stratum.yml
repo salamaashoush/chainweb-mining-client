@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  mining-client-stratum-haskell:
+    image: ${HASKELL_IMAGE:-salamaashoush/chainweb-mining-client:latest}
+    container_name: mining-client-stratum-haskell
+    command:
+      - --worker
+      - stratum
+      - --node
+      - chainweb-pow:1848
+      - --public-key
+      - ${MINER_PUBLIC_KEY:-f89ef46927f506c70b6a58fd322450a936311dc6ac91f4ec3d8ef949608dbf1f}
+      - --account
+      - ${MINER_ACCOUNT:-k:f89ef46927f506c70b6a58fd322450a936311dc6ac91f4ec3d8ef949608dbf1f}
+      - --stratum-port
+      - "1917"
+      - --stratum-host
+      - "0.0.0.0"
+      - --stratum-difficulty
+      - "1"
+      - --log-level
+      - info
+    ports:
+      - "1917:1917"
+    depends_on:
+      chainweb-pow:
+        condition: service_healthy
+    networks:
+      - chainweb-test
+    volumes:
+      - test-results:/results
+    environment:
+      - TEST_MODE=stratum
+      - IMPLEMENTATION=haskell
+
+  mining-client-stratum-rust:
+    image: ${RUST_IMAGE:-salamaashoush/chainweb-mining-client-rs:latest}
+    container_name: mining-client-stratum-rust
+    command:
+      - --worker
+      - stratum
+      - --node
+      - chainweb-pow:1848
+      - --public-key
+      - ${MINER_PUBLIC_KEY:-f89ef46927f506c70b6a58fd322450a936311dc6ac91f4ec3d8ef949608dbf1f}
+      - --account
+      - ${MINER_ACCOUNT:-k:f89ef46927f506c70b6a58fd322450a936311dc6ac91f4ec3d8ef949608dbf1f}
+      - --stratum-port
+      - "1918"
+      - --stratum-host
+      - "0.0.0.0"
+      - --stratum-difficulty
+      - "1"
+      - --log-level
+      - info
+    ports:
+      - "1918:1918"
+    depends_on:
+      chainweb-pow:
+        condition: service_healthy
+    networks:
+      - chainweb-test
+    volumes:
+      - test-results:/results
+    environment:
+      - TEST_MODE=stratum
+      - IMPLEMENTATION=rust
+
+  # Mock stratum miner for testing
+  stratum-miner-mock:
+    image: alpine:latest
+    container_name: stratum-miner-mock
+    depends_on:
+      - mining-client-stratum-haskell
+      - mining-client-stratum-rust
+    command: >
+      sh -c "
+        apk add --no-cache netcat-openbsd &&
+        sleep 5 &&
+        echo 'Testing Haskell Stratum...' &&
+        echo '{\"id\":1,\"method\":\"mining.subscribe\",\"params\":[]}' | nc mining-client-stratum-haskell 1917 &&
+        echo 'Testing Rust Stratum...' &&
+        echo '{\"id\":1,\"method\":\"mining.subscribe\",\"params\":[]}' | nc mining-client-stratum-rust 1918 &&
+        sleep infinity
+      "
+    networks:
+      - chainweb-test

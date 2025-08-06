@@ -1,6 +1,7 @@
 //! Utility functions and helpers
 
 pub mod logging;
+pub mod memory;
 pub mod monitoring;
 pub mod units;
 

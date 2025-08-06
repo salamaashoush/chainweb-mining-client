@@ -2,6 +2,7 @@
 //!
 //! High-performance mining client for the Kadena Chainweb network.
 
+
 use chainweb_mining_client::{
     config::{Args, Config, WorkerConfig},
     core::{ChainId, PreemptionConfig, PreemptionDecision, PreemptionStrategy, WorkPreemptor},
@@ -193,6 +194,25 @@ async fn main() -> Result<()> {
                 update_interval: Duration::from_secs(1),
             };
             Arc::new(CpuWorker::new(cpu_config))
+        }
+        WorkerConfig::Gpu {
+            device_index,
+            workgroup_size,
+            workgroup_count,
+            batch_size,
+            enable_monitoring,
+        } => {
+            let gpu_config = chainweb_mining_client::workers::gpu::GpuConfig {
+                device_index: *device_index,
+                workgroup_size: *workgroup_size,
+                workgroup_count: *workgroup_count,
+                batch_size: *batch_size,
+                enable_monitoring: *enable_monitoring,
+            };
+            let gpu_worker = tokio::runtime::Handle::current()
+                .block_on(chainweb_mining_client::workers::gpu::GpuWorker::new(gpu_config))
+                .expect("Failed to create GPU worker");
+            Arc::new(gpu_worker)
         }
         WorkerConfig::External {
             command,

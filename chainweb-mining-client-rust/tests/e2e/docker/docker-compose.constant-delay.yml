@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  mining-client-constant-delay-haskell:
+    image: ${HASKELL_IMAGE:-salamaashoush/chainweb-mining-client:latest}
+    container_name: mining-client-constant-delay-haskell
+    command:
+      - --worker
+      - constant-delay
+      - --node
+      - chainweb-no-pow:1848
+      - --public-key
+      - ${MINER_PUBLIC_KEY:-f89ef46927f506c70b6a58fd322450a936311dc6ac91f4ec3d8ef949608dbf1f}
+      - --account
+      - ${MINER_ACCOUNT:-k:f89ef46927f506c70b6a58fd322450a936311dc6ac91f4ec3d8ef949608dbf1f}
+      - --constant-delay-block-time
+      - "5"
+      - --log-level
+      - info
+    depends_on:
+      chainweb-no-pow:
+        condition: service_healthy
+    networks:
+      - chainweb-test
+    volumes:
+      - test-results:/results
+    environment:
+      - TEST_MODE=constant-delay
+      - IMPLEMENTATION=haskell
+
+  mining-client-constant-delay-rust:
+    image: ${RUST_IMAGE:-salamaashoush/chainweb-mining-client-rs:latest}
+    container_name: mining-client-constant-delay-rust
+    command:
+      - --worker
+      - constant-delay
+      - --node
+      - chainweb-no-pow:1848
+      - --public-key
+      - ${MINER_PUBLIC_KEY:-f89ef46927f506c70b6a58fd322450a936311dc6ac91f4ec3d8ef949608dbf1f}
+      - --account
+      - ${MINER_ACCOUNT:-k:f89ef46927f506c70b6a58fd322450a936311dc6ac91f4ec3d8ef949608dbf1f}
+      - --constant-delay-block-time
+      - "5"
+      - --log-level
+      - info
+    depends_on:
+      chainweb-no-pow:
+        condition: service_healthy
+    networks:
+      - chainweb-test
+    volumes:
+      - test-results:/results
+    environment:
+      - TEST_MODE=constant-delay
+      - IMPLEMENTATION=rust

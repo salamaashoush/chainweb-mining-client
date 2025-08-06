@@ -1,0 +1,21 @@
+E2E Test Summary
+================
+Timestamp: 20250712_175050
+Total Tests: 1
+Failed Tests: 0
+Test Duration: 30s per worker
+
+Worker Type Results:
+--------------------
+
+simulation Worker:
+  Haskell:
+    - Solutions: 0
+    - Errors: 0
+    - Rate: 0 solutions/min
+  Rust:
+    - Solutions: 0
+    - Errors: 0
+    - Rate: 0 solutions/min
+  Performance Ratio (Rust/Haskell): N/A%
+

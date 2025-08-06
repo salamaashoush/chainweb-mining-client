@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+  mining-client-on-demand-haskell:
+    image: ${HASKELL_IMAGE:-salamaashoush/chainweb-mining-client:latest}
+    container_name: mining-client-on-demand-haskell
+    command:
+      - --worker
+      - on-demand
+      - --node
+      - chainweb-no-pow:1848
+      - --public-key
+      - ${MINER_PUBLIC_KEY:-f89ef46927f506c70b6a58fd322450a936311dc6ac91f4ec3d8ef949608dbf1f}
+      - --account
+      - ${MINER_ACCOUNT:-k:f89ef46927f506c70b6a58fd322450a936311dc6ac91f4ec3d8ef949608dbf1f}
+      - --on-demand-port
+      - "1790"
+      - --log-level
+      - info
+    ports:
+      - "1790:1790"
+    depends_on:
+      chainweb-no-pow:
+        condition: service_healthy
+    networks:
+      - chainweb-test
+    volumes:
+      - test-results:/results
+    environment:
+      - TEST_MODE=on-demand
+      - IMPLEMENTATION=haskell
+
+  mining-client-on-demand-rust:
+    image: ${RUST_IMAGE:-salamaashoush/chainweb-mining-client-rs:latest}
+    container_name: mining-client-on-demand-rust
+    command:
+      - --worker
+      - on-demand
+      - --node
+      - chainweb-no-pow:1848
+      - --public-key
+      - ${MINER_PUBLIC_KEY:-f89ef46927f506c70b6a58fd322450a936311dc6ac91f4ec3d8ef949608dbf1f}
+      - --account
+      - ${MINER_ACCOUNT:-k:f89ef46927f506c70b6a58fd322450a936311dc6ac91f4ec3d8ef949608dbf1f}
+      - --on-demand-port
+      - "1791"
+      - --log-level
+      - info
+    ports:
+      - "1791:1791"
+    depends_on:
+      chainweb-no-pow:
+        condition: service_healthy
+    networks:
+      - chainweb-test
+    volumes:
+      - test-results:/results
+    environment:
+      - TEST_MODE=on-demand
+      - IMPLEMENTATION=rust
+
+  # Test trigger for on-demand mining
+  on-demand-trigger:
+    image: alpine:latest
+    container_name: on-demand-trigger
+    depends_on:
+      - mining-client-on-demand-haskell
+      - mining-client-on-demand-rust
+    command: >
+      sh -c "
+        apk add --no-cache curl &&
+        sleep 10 &&
+        echo 'Triggering Haskell on-demand mining...' &&
+        curl -X POST http://mining-client-on-demand-haskell:1790/mine &&
+        echo &&
+        echo 'Triggering Rust on-demand mining...' &&
+        curl -X POST http://mining-client-on-demand-rust:1791/mine &&
+        sleep infinity
+      "
+    networks:
+      - chainweb-test

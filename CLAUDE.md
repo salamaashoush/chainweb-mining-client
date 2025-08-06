@@ -119,19 +119,17 @@ cargo make stress-test-simulation       # Simulation worker test
 
 **Docker Support:**
 ```bash
-# Build Docker images
-cargo make docker-build latest scratch     # Build with scratch base
-cargo make docker-build latest distroless  # Build with distroless base
-cargo make docker-build-all v1.0.0        # Build both variants
+# Build Docker image locally (for testing - doesn't push)
+./build-local.sh                           # Builds latest tag
+./build-local.sh v1.0.0                    # Builds specific tag
+./build-docker.sh latest scratch --local   # Full control with --local flag
 
-# Test Docker image
-cargo make docker-test latest
+# Build and publish Docker images (requires Docker Hub access)
+./build-docker.sh latest scratch           # Builds and pushes multi-arch image
+./build-docker.sh v1.0.0 scratch          # Builds and pushes with version tag
 
-# Clean Docker cache
-cargo make docker-clean
-
-# Complete release workflow
-cargo make release v1.0.0  # Runs checks, tests, builds, and creates Docker images
+# Run from Docker
+docker run salamaashoush/chainweb-mining-client-rs:latest --help
 ```
 
 **Continuous Integration:**

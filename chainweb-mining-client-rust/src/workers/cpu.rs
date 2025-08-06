@@ -1,6 +1,6 @@
 //! CPU mining implementation using multiple threads
 
-use crate::core::{Nonce, Target, VectorizedMiner, Work};
+use crate::core::{Nonce, Target, VectorizedMiner, Work, SimdMiner, detect_simd_features};
 use crate::error::Result;
 use crate::utils::monitoring::global_monitoring;
 use crate::workers::{MiningResult, Worker};
@@ -62,8 +62,7 @@ impl NonceBufferPool {
     fn get_buffer(&self) -> Vec<u64> {
         let mut buffers = self.buffers.lock();
         buffers.pop().unwrap_or_else(|| {
-            let buffer = vec![0; self.batch_size as usize];
-            buffer
+            vec![0; self.batch_size as usize]
         })
     }
 
@@ -86,6 +85,8 @@ pub struct CpuWorker {
     last_hashrate_time: Arc<Mutex<Instant>>,
     nonce_pool: NonceBufferPool,
     vectorized_miner_pool: Arc<Mutex<Vec<VectorizedMiner>>>,
+    simd_miner_pool: Arc<Mutex<Vec<SimdMiner>>>,
+    use_simd: bool,
 }
 
 impl CpuWorker {
@@ -98,6 +99,17 @@ impl CpuWorker {
         };
 
         info!("Initializing CPU worker with {} threads", threads);
+        
+        // Detect SIMD features
+        let simd_features = detect_simd_features();
+        let use_simd = simd_features.has_avx2 || simd_features.has_sse41 || simd_features.has_neon;
+        info!("CPU features: {}", simd_features.description());
+        
+        if use_simd {
+            info!("Using SIMD-optimized Blake2s implementation");
+        } else {
+            info!("Using standard Blake2s implementation");
+        }
 
         // Configure rayon thread pool
         rayon::ThreadPoolBuilder::new()
@@ -107,8 +119,10 @@ impl CpuWorker {
 
         // Create vectorized miners for each thread
         let mut vectorized_miners = Vec::with_capacity(threads);
+        let mut simd_miners = Vec::with_capacity(threads);
         for _ in 0..threads {
             vectorized_miners.push(VectorizedMiner::new(config.batch_size as usize));
+            simd_miners.push(SimdMiner::new(config.batch_size as usize));
         }
 
         Self {
@@ -118,6 +132,8 @@ impl CpuWorker {
             last_hashrate_time: Arc::new(Mutex::new(Instant::now())),
             nonce_pool: NonceBufferPool::new(config.batch_size, threads),
             vectorized_miner_pool: Arc::new(Mutex::new(vectorized_miners)),
+            simd_miner_pool: Arc::new(Mutex::new(simd_miners)),
+            use_simd,
         }
     }
 
@@ -158,6 +174,44 @@ impl CpuWorker {
                 None
             }
         })
+    }
+
+    /// SIMD-optimized batch mining using new SIMD hasher
+    fn mine_batch_simd_optimized(
+        work_bytes: &[u8; 286],
+        target: &Target,
+        start_nonce: u64,
+        batch_size: u64,
+        simd_miner: &mut SimdMiner,
+        is_mining: &AtomicBool,
+    ) -> Option<(Nonce, [u8; 32])> {
+        let simd_batch_size = (batch_size as usize).min(simd_miner.batch_size());
+        let num_batches = (batch_size as usize).div_ceil(simd_batch_size);
+
+        for batch_idx in 0..num_batches {
+            if !is_mining.load(Ordering::Relaxed) {
+                return None;
+            }
+
+            let batch_start_nonce = start_nonce + (batch_idx * simd_batch_size) as u64;
+            let current_batch_size = if batch_idx == num_batches - 1 {
+                batch_size as usize - batch_idx * simd_batch_size
+            } else {
+                simd_batch_size
+            };
+
+            // Use SIMD mining for this batch
+            if let Some((nonce, hash)) = simd_miner.mine_batch(
+                work_bytes,
+                target,
+                batch_start_nonce,
+                current_batch_size,
+            ) {
+                return Some((nonce, hash));
+            }
+        }
+
+        None
     }
 
     /// SIMD-optimized batch mining using vectorized hashing
@@ -223,6 +277,8 @@ impl Worker for CpuWorker {
         let batch_size = self.config.batch_size;
         let nonce_pool = self.nonce_pool.clone();
         let vectorized_pool = self.vectorized_miner_pool.clone();
+        let simd_pool = self.simd_miner_pool.clone();
+        let use_simd = self.use_simd;
 
         // Get work as bytes once to avoid repeated cloning
         let work_bytes = *work.as_bytes();
@@ -232,11 +288,25 @@ impl Worker for CpuWorker {
             let mut current_nonce = 0u64;
             let nonce_buffer = nonce_pool.get_buffer();
 
-            // Get a vectorized miner from the pool
-            let mut vectorized_miner = {
-                let mut pool = vectorized_pool.lock();
-                pool.pop()
-                    .unwrap_or_else(|| VectorizedMiner::new(batch_size as usize))
+            // Get appropriate miner based on SIMD support
+            let mut vectorized_miner = if !use_simd {
+                Some({
+                    let mut pool = vectorized_pool.lock();
+                    pool.pop()
+                        .unwrap_or_else(|| VectorizedMiner::new(batch_size as usize))
+                })
+            } else {
+                None
+            };
+            
+            let mut simd_miner = if use_simd {
+                Some({
+                    let mut pool = simd_pool.lock();
+                    pool.pop()
+                        .unwrap_or_else(|| SimdMiner::new(batch_size as usize))
+                })
+            } else {
+                None
             };
 
             // Initialize monitoring
@@ -244,23 +314,40 @@ impl Worker for CpuWorker {
             let start_time = Instant::now();
             let mut last_hash_rate_update = Instant::now();
 
-            info!("Starting CPU mining with SIMD optimizations");
+            info!("Starting CPU mining with {} optimizations", 
+                  if use_simd { "AVX2/SIMD" } else { "standard" });
 
             let mining_result = loop {
                 if !is_mining.load(Ordering::Relaxed) {
                     break None;
                 }
 
-                // Try SIMD-optimized mining first (better performance)
-                if let Some((nonce, hash)) = Self::mine_batch_simd(
-                    &work_bytes,
-                    &target,
-                    current_nonce,
-                    batch_size,
-                    &mut vectorized_miner,
-                    &is_mining,
-                ) {
-                    info!("Found solution! Nonce: {} (SIMD)", nonce);
+                // Use appropriate mining method based on SIMD support
+                let mining_result = if let Some(ref mut simd_miner) = simd_miner {
+                    Self::mine_batch_simd_optimized(
+                        &work_bytes,
+                        &target,
+                        current_nonce,
+                        batch_size,
+                        simd_miner,
+                        &is_mining,
+                    )
+                } else if let Some(ref mut vectorized_miner) = vectorized_miner {
+                    Self::mine_batch_simd(
+                        &work_bytes,
+                        &target,
+                        current_nonce,
+                        batch_size,
+                        vectorized_miner,
+                        &is_mining,
+                    )
+                } else {
+                    None
+                };
+
+                if let Some((nonce, hash)) = mining_result {
+                    info!("Found solution! Nonce: {} ({})", nonce,
+                          if use_simd { "AVX2/SIMD" } else { "standard" });
 
                     // Record solution found
                     monitoring.record_solution();
@@ -305,12 +392,20 @@ impl Worker for CpuWorker {
                 }
             };
 
-            // Return vectorized miner to pool
-            {
+            // Return miners to their pools
+            if let Some(vectorized_miner) = vectorized_miner {
                 let mut pool = vectorized_pool.lock();
                 if pool.len() < 16 {
                     // Limit pool size
                     pool.push(vectorized_miner);
+                }
+            }
+            
+            if let Some(simd_miner) = simd_miner {
+                let mut pool = simd_pool.lock();
+                if pool.len() < 16 {
+                    // Limit pool size
+                    pool.push(simd_miner);
                 }
             }
 

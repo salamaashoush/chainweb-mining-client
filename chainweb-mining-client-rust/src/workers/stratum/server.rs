@@ -23,7 +23,6 @@ use super::protocol::{StratumErrorCode, *};
 use super::session::*;
 
 /// Constants for dynamic difficulty adjustment
-const TARGET_PERIOD: f64 = 10.0;  // Target 10 seconds between shares
 const PERIOD_TOLERANCE: f64 = 0.25;  // 25% tolerance before adjusting
 const MAX_SESSION_TARGET_LEVEL: u8 = 42;  // Minimum difficulty level
 

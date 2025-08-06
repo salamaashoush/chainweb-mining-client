@@ -1,0 +1,19 @@
+{
+  "test_run": "20250712_180507",
+  "results": [
+    {
+      "worker_type": "cpu",
+      "duration_seconds": 60,
+      "haskell": {
+        "solutions_accepted": 0,
+        "errors": 0,
+        "solutions_per_minute": 0
+      },
+      "rust": {
+        "solutions_accepted": 0,
+        "errors": 0,
+        "solutions_per_minute": 0
+      }
+    }
+  ]
+}

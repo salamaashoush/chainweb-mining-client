@@ -11,6 +11,7 @@ use tokio::sync::mpsc;
 pub mod constant_delay;
 pub mod cpu;
 pub mod external;
+pub mod gpu;
 pub mod on_demand;
 pub mod simulation;
 pub mod stratum;
@@ -18,6 +19,7 @@ pub mod stratum;
 pub use constant_delay::ConstantDelayWorker;
 pub use cpu::CpuWorker;
 pub use external::ExternalWorker;
+pub use gpu::GpuWorker;
 pub use on_demand::OnDemandWorker;
 pub use simulation::SimulationWorker;
 pub use stratum::StratumServer;
@@ -59,6 +61,8 @@ pub trait Worker: Send + Sync {
 pub enum WorkerType {
     /// CPU mining using multiple threads
     Cpu,
+    /// GPU mining using external GPU process
+    Gpu,
     /// External worker (e.g., GPU miner)
     External,
     /// Stratum server for ASIC miners
@@ -76,6 +80,7 @@ impl WorkerType {
     pub fn all() -> &'static [WorkerType] {
         &[
             WorkerType::Cpu,
+            WorkerType::Gpu,
             WorkerType::External,
             WorkerType::Stratum,
             WorkerType::Simulation,
@@ -88,6 +93,7 @@ impl WorkerType {
     pub fn name(&self) -> &'static str {
         match self {
             WorkerType::Cpu => "cpu",
+            WorkerType::Gpu => "gpu",
             WorkerType::External => "external",
             WorkerType::Stratum => "stratum",
             WorkerType::Simulation => "simulation",
@@ -100,6 +106,7 @@ impl WorkerType {
     pub fn parse_worker_type(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "cpu" => Some(WorkerType::Cpu),
+            "gpu" => Some(WorkerType::Gpu),
             "external" => Some(WorkerType::External),
             "stratum" => Some(WorkerType::Stratum),
             "simulation" => Some(WorkerType::Simulation),
@@ -141,8 +148,9 @@ mod tests {
     #[test]
     fn test_worker_type_all() {
         let all = WorkerType::all();
-        assert_eq!(all.len(), 6);
+        assert_eq!(all.len(), 7);
         assert!(all.contains(&WorkerType::Cpu));
+        assert!(all.contains(&WorkerType::Gpu));
         assert!(all.contains(&WorkerType::External));
     }
 

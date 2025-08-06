@@ -1,0 +1,111 @@
+version: '3.8'
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # Base chainweb node for standard PoW workers (CPU, Stratum)
+  chainweb-pow:
+    image: ${CHAINWEB_NODE_IMAGE:-ghcr.io/kadena-io/chainweb-node/ubuntu:latest}
+    container_name: chainweb-pow-test
+    entrypoint:
+      - /chainweb/chainweb-node
+    command:
+      - +RTS
+      - -T
+      - -H400M
+      - -A64M
+      - -RTS
+      - --database-directory=/chainweb/db
+      - --log-level=info
+      - --chainweb-version=development
+      - --p2p-port=1789
+      - --service-port=1848
+      - --p2p-interface=*
+      - --service-interface=*
+      - --p2p-hostname=0.0.0.0
+      - --cluster-id=chainweb-pow-test
+      - --bootstrap-reachability=0
+      - --p2p-max-session-count=1
+      - --mempool-p2p-max-session-count=1
+      - --prune-chain-database=none
+      - --enable-mining-coordination
+      - --mining-public-key=${MINER_PUBLIC_KEY:-f89ef46927f506c70b6a58fd322450a936311dc6ac91f4ec3d8ef949608dbf1f}
+      - --header-stream
+      - --allowReadsInLocal
+    volumes:
+      - chainweb-pow-db:/chainweb/db
+    ports:
+      - "1848:1848"
+      - "1789:1789"
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/1848' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 120s
+    networks:
+      - chainweb-test
+
+  # Chainweb node with PoW disabled for non-PoW workers (simulation, constant-delay, on-demand)
+  chainweb-no-pow:
+    image: ${CHAINWEB_NODE_IMAGE:-ghcr.io/kadena-io/chainweb-node/ubuntu:latest}
+    container_name: chainweb-no-pow-test
+    environment:
+      - DISABLE_POW_VALIDATION=1
+    entrypoint:
+      - /chainweb/chainweb-node
+    command:
+      - +RTS
+      - -T
+      - -H400M
+      - -A64M
+      - -RTS
+      - --database-directory=/chainweb/db
+      - --log-level=info
+      - --chainweb-version=development
+      - --p2p-port=1789
+      - --service-port=1848
+      - --p2p-interface=*
+      - --service-interface=*
+      - --p2p-hostname=0.0.0.0
+      - --cluster-id=chainweb-no-pow-test
+      - --bootstrap-reachability=0
+      - --p2p-max-session-count=1
+      - --mempool-p2p-max-session-count=1
+      - --prune-chain-database=none
+      - --enable-mining-coordination
+      - --mining-public-key=${MINER_PUBLIC_KEY:-f89ef46927f506c70b6a58fd322450a936311dc6ac91f4ec3d8ef949608dbf1f}
+      - --header-stream
+      - --allowReadsInLocal
+      - --disable-pow
+    volumes:
+      - chainweb-no-pow-db:/chainweb/db
+    ports:
+      - "1849:1848"
+      - "1790:1789"
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/1848' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 120s
+    networks:
+      - chainweb-test
+
+networks:
+  chainweb-test:
+    driver: bridge
+
+volumes:
+  chainweb-pow-db:
+    driver: local
+  chainweb-no-pow-db:
+    driver: local
+  test-results:
+    driver: local

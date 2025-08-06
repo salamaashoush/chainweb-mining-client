@@ -8,6 +8,7 @@ mod difficulty;
 mod hash_simd;
 mod nonce;
 mod preemption;
+mod simd_hasher;
 mod target;
 mod target_arithmetic;
 mod work;
@@ -20,6 +21,7 @@ pub use preemption::{
     PreemptionAction, PreemptionConfig, PreemptionDecision, PreemptionStats, PreemptionStrategy,
     WorkPreemptor,
 };
+pub use simd_hasher::{SimdHasher, SimdMiner, SimdFeatures, detect_simd_features};
 pub use target::Target;
 pub use target_arithmetic::{Level, TargetArithmetic, TargetWords};
 pub use work::Work;

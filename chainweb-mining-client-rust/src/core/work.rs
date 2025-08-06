@@ -13,6 +13,14 @@ pub struct Work {
     bytes: [u8; WORK_SIZE],
 }
 
+impl Default for Work {
+    fn default() -> Self {
+        Self {
+            bytes: [0u8; WORK_SIZE],
+        }
+    }
+}
+
 impl Work {
     /// Create a new Work from bytes
     pub fn from_bytes(bytes: [u8; WORK_SIZE]) -> Self {

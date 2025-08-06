@@ -1,0 +1,9 @@
+E2E Test Summary
+================
+Timestamp: 20250712_174920
+Total Tests: 0
+Failed Tests: 0
+Test Duration: 30s per worker
+
+Worker Type Results:
+--------------------

@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  mining-client-external-haskell:
+    image: ${HASKELL_IMAGE:-salamaashoush/chainweb-mining-client:latest}
+    container_name: mining-client-external-haskell
+    command:
+      - --worker
+      - external
+      - --node
+      - chainweb-pow:1848
+      - --public-key
+      - ${MINER_PUBLIC_KEY:-f89ef46927f506c70b6a58fd322450a936311dc6ac91f4ec3d8ef949608dbf1f}
+      - --account
+      - ${MINER_ACCOUNT:-k:f89ef46927f506c70b6a58fd322450a936311dc6ac91f4ec3d8ef949608dbf1f}
+      - --external-worker-cmd
+      - /mock-miner.sh
+      - --log-level
+      - info
+    depends_on:
+      chainweb-pow:
+        condition: service_healthy
+    networks:
+      - chainweb-test
+    volumes:
+      - test-results:/results
+      - ./scripts/mock-miner.sh:/mock-miner.sh:ro
+    environment:
+      - TEST_MODE=external
+      - IMPLEMENTATION=haskell
+
+  mining-client-external-rust:
+    image: ${RUST_IMAGE:-salamaashoush/chainweb-mining-client-rs:latest}
+    container_name: mining-client-external-rust
+    command:
+      - --worker
+      - external
+      - --node
+      - chainweb-pow:1848
+      - --public-key
+      - ${MINER_PUBLIC_KEY:-f89ef46927f506c70b6a58fd322450a936311dc6ac91f4ec3d8ef949608dbf1f}
+      - --account
+      - ${MINER_ACCOUNT:-k:f89ef46927f506c70b6a58fd322450a936311dc6ac91f4ec3d8ef949608dbf1f}
+      - --external-worker-cmd
+      - /mock-miner.sh
+      - --log-level
+      - info
+    depends_on:
+      chainweb-pow:
+        condition: service_healthy
+    networks:
+      - chainweb-test
+    volumes:
+      - test-results:/results
+      - ./scripts/mock-miner.sh:/mock-miner.sh:ro
+    environment:
+      - TEST_MODE=external
+      - IMPLEMENTATION=rust

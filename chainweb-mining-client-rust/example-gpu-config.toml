@@ -1,0 +1,37 @@
+# Example configuration for GPU mining with built-in wgpu worker
+
+[node]
+# Chainweb node URL (without protocol for remote, or full URL for local)
+url = "localhost:1848"
+# Chain ID to mine on
+chain_id = 0
+# Use TLS/HTTPS
+use_tls = false
+
+[mining]
+# Mining account (replace with your k: account)
+account = "k:YOUR_PUBLIC_KEY_HERE"
+# Public key (replace with your actual public key)
+public_key = "YOUR_PUBLIC_KEY_HERE"
+# Update interval in seconds
+update_interval_secs = 5
+
+# GPU worker configuration
+[worker]
+type = "gpu"
+# Device index to use (omit to auto-select best GPU)
+# device_index = 0
+# Workgroup size (threads per workgroup)
+workgroup_size = 256
+# Number of workgroups to dispatch
+workgroup_count = 1024
+# Batch size (nonces per GPU dispatch)
+batch_size = 262144  # 256k
+# Enable GPU performance monitoring
+enable_monitoring = true
+
+[logging]
+# Log level: trace, debug, info, warn, error
+level = "info"
+# Log format: plain, json
+format = "plain"

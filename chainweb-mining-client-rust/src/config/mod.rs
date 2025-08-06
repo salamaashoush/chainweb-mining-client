@@ -193,7 +193,7 @@ pub struct Args {
     #[clap(
         short = 'w',
         long = "worker",
-        value_name = "cpu|external|simulation|stratum|constant-delay|on-demand",
+        value_name = "cpu|gpu|external|simulation|stratum|constant-delay|on-demand",
         help = "The type of mining worker that is used"
     )]
     pub worker: Option<String>,
@@ -437,6 +437,26 @@ pub enum WorkerConfig {
         batch_size: u64,
     },
 
+    /// GPU worker configuration
+    #[serde(rename = "gpu")]
+    Gpu {
+        /// Device index to use (None = auto-select best device)
+        #[serde(default)]
+        device_index: Option<usize>,
+        /// Workgroup size (number of threads per workgroup)
+        #[serde(default = "default_workgroup_size")]
+        workgroup_size: u32,
+        /// Number of workgroups to dispatch
+        #[serde(default = "default_workgroup_count")]
+        workgroup_count: u32,
+        /// Maximum nonces to process in one batch
+        #[serde(default = "default_gpu_batch_size")]
+        batch_size: u32,
+        /// Enable GPU performance monitoring
+        #[serde(default = "default_enable_monitoring")]
+        enable_monitoring: bool,
+    },
+
     /// External worker configuration
     #[serde(rename = "external")]
     External {
@@ -551,6 +571,10 @@ fn default_batch_size() -> u64 {
     100_000
 }
 
+fn default_gpu_batch_size() -> u32 {
+    256 * 1024 // 256k nonces per batch
+}
+
 fn default_external_timeout() -> u64 {
     60
 }
@@ -589,6 +613,19 @@ fn default_log_level() -> String {
 
 fn default_log_format() -> String {
     "plain".to_string()
+}
+
+fn default_workgroup_size() -> u32 {
+    256
+}
+
+fn default_workgroup_count() -> u32 {
+    1024
+}
+
+
+fn default_enable_monitoring() -> bool {
+    true
 }
 
 impl Config {
@@ -1049,6 +1086,14 @@ impl Config {
                     return Err(Error::config("Batch size must be greater than 0"));
                 }
             }
+            WorkerConfig::Gpu { batch_size, workgroup_size, .. } => {
+                if *batch_size == 0 {
+                    return Err(Error::config("GPU batch size must be greater than 0"));
+                }
+                if *workgroup_size == 0 {
+                    return Err(Error::config("GPU workgroup size must be greater than 0"));
+                }
+            }
             WorkerConfig::External { command, .. } => {
                 // Command validation would happen at runtime
                 if command.is_empty() {
@@ -1084,6 +1129,7 @@ impl Config {
     pub fn worker_type(&self) -> WorkerType {
         match &self.worker {
             WorkerConfig::Cpu { .. } => WorkerType::Cpu,
+            WorkerConfig::Gpu { .. } => WorkerType::Gpu,
             WorkerConfig::External { .. } => WorkerType::External,
             WorkerConfig::Stratum { .. } => WorkerType::Stratum,
             WorkerConfig::Simulation { .. } => WorkerType::Simulation,

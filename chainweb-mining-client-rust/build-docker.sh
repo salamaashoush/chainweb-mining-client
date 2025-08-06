@@ -2,16 +2,16 @@
 set -e
 
 #
-# This script builds and pushes multi-architecture Docker images for the
+# This script builds and optionally pushes multi-architecture Docker images for the
 # Rust chainweb-mining-client.
 #
 # Usage:
-#   ./build-docker.sh [tag] [dockerfile]
+#   ./build-docker.sh [tag] [dockerfile] [--local]
 #
 # Examples:
-#   ./build-docker.sh                    # builds latest with Dockerfile
-#   ./build-docker.sh v1.0.0            # builds v1.0.0 with Dockerfile
-#   ./build-docker.sh latest distroless # builds latest with Dockerfile.distroless
+#   ./build-docker.sh                    # builds and pushes latest with Dockerfile
+#   ./build-docker.sh v1.0.0            # builds and pushes v1.0.0 with Dockerfile
+#   ./build-docker.sh latest scratch --local # builds latest locally only (no push)
 #
 
 # --- Configuration ---
@@ -28,11 +28,25 @@ TAG=${1:-latest}
 # Use the provided dockerfile or default to "Dockerfile"
 DOCKERFILE_TYPE=${2:-"scratch"}
 
+# Check if --local flag is present
+LOCAL_ONLY=false
+if [ "$3" = "--local" ] || [ "$2" = "--local" ]; then
+    LOCAL_ONLY=true
+    if [ "$2" = "--local" ]; then
+        DOCKERFILE_TYPE="scratch"
+    fi
+fi
+
 # The platforms to build for
-PLATFORMS="linux/amd64,linux/arm64"
+if [ "$LOCAL_ONLY" = true ]; then
+    # For local builds, only build for the current platform
+    PLATFORMS="linux/$(uname -m | sed 's/x86_64/amd64/g')"
+else
+    PLATFORMS="linux/amd64,linux/arm64"
+fi
 
 # Image name
-IMAGE_NAME="salamaashoush/chainweb-mining-client"
+IMAGE_NAME="salamaashoush/chainweb-mining-client-rs"
 
 # --- Script ---
 
@@ -71,16 +85,28 @@ fi
 
 # Build the image
 echo ""
-echo "Building and pushing multi-arch image..."
-docker buildx build \
-    --platform "${PLATFORMS}" \
-    --file "${DOCKERFILE}" \
-    --tag "${IMAGE_NAME}${IMAGE_SUFFIX}:${TAG}" \
-    --tag "${IMAGE_NAME}${IMAGE_SUFFIX}:${VERSION}" \
-    --push \
-    .
-
-echo ""
-echo "Successfully built and pushed ${IMAGE_NAME}${IMAGE_SUFFIX}:${TAG}"
+if [ "$LOCAL_ONLY" = true ]; then
+    echo "Building local image..."
+    docker buildx build \
+        --platform "${PLATFORMS}" \
+        --file "${DOCKERFILE}" \
+        --tag "${IMAGE_NAME}${IMAGE_SUFFIX}:${TAG}" \
+        --tag "${IMAGE_NAME}${IMAGE_SUFFIX}:${VERSION}" \
+        --load \
+        .
+    echo ""
+    echo "Successfully built local image ${IMAGE_NAME}${IMAGE_SUFFIX}:${TAG}"
+else
+    echo "Building and pushing multi-arch image..."
+    docker buildx build \
+        --platform "${PLATFORMS}" \
+        --file "${DOCKERFILE}" \
+        --tag "${IMAGE_NAME}${IMAGE_SUFFIX}:${TAG}" \
+        --tag "${IMAGE_NAME}${IMAGE_SUFFIX}:${VERSION}" \
+        --push \
+        .
+    echo ""
+    echo "Successfully built and pushed ${IMAGE_NAME}${IMAGE_SUFFIX}:${TAG}"
+fi
 echo "Image sizes (approximate):"
 docker images | grep "${IMAGE_NAME}" | head -5

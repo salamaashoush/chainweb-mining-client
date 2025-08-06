@@ -8,10 +8,13 @@ RUN apk add --no-cache \
     openssl-dev \
     openssl-libs-static \
     pkgconfig \
-    ca-certificates
+    ca-certificates \
+    make \
+    gcc
 
 # Create app directory
 WORKDIR /app
+
 
 # Copy manifests first for better caching
 COPY Cargo.toml Cargo.lock ./

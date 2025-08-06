@@ -4,6 +4,7 @@ use crate::core::{ChainId, Target, Work};
 use crate::error::{Error, Result};
 use crate::protocol::http_pool::{get_insecure_client, get_mining_client};
 use crate::protocol::retry::retry_http;
+use bytes::Bytes;
 use eventsource_stream::Eventsource;
 use futures::StreamExt;
 use reqwest::Client;
@@ -240,12 +241,12 @@ impl ChainwebClient {
 
         debug!("Submitting solution to: {}", url);
 
-        // Submit raw work bytes directly
+        // Submit raw work bytes directly using Bytes to avoid allocation
         let response = self
             .client
             .post(&url)
             .header("Content-Type", "application/octet-stream")
-            .body(work.as_bytes().to_vec())
+            .body(Bytes::copy_from_slice(work.as_bytes()))
             .send()
             .await
             .map_err(|e| Error::network_connection_failed(&url, Box::new(e)))?;
@@ -276,7 +277,8 @@ impl ChainwebClient {
         debug!("Subscribing to updates at: {}", url);
 
         // Encode chain ID as 4-byte little-endian binary
-        let body = (self.config.chain_id.value() as u32).to_le_bytes().to_vec();
+        let chain_id_bytes = (self.config.chain_id.value() as u32).to_le_bytes();
+        let body = Bytes::copy_from_slice(&chain_id_bytes);
 
         let response = self
             .client
